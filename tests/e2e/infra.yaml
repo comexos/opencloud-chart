@@ -1,0 +1,144 @@
+# Test-only identity infrastructure for tests/e2e/run.sh: OpenLDAP as the
+# directory, Keycloak federating it read-only. Not hardened; never reuse.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ldap-seed
+data:
+  10-tree.ldif: |
+    dn: dc=example,dc=org
+    objectClass: dcObject
+    objectClass: organization
+    dc: example
+    o: example
+
+    dn: ou=users,dc=example,dc=org
+    objectClass: organizationalUnit
+    ou: users
+
+    dn: ou=groups,dc=example,dc=org
+    objectClass: organizationalUnit
+    ou: groups
+
+    dn: ou=roles,dc=example,dc=org
+    objectClass: organizationalUnit
+    ou: roles
+
+    dn: uid=alice,ou=users,dc=example,dc=org
+    objectClass: inetOrgPerson
+    uid: alice
+    cn: Alice Admin
+    givenName: Alice
+    sn: Admin
+    displayName: Alice Admin
+    mail: alice@example.org
+    userPassword: alice-pass
+
+    dn: uid=bob,ou=users,dc=example,dc=org
+    objectClass: inetOrgPerson
+    uid: bob
+    cn: Bob User
+    givenName: Bob
+    sn: User
+    displayName: Bob User
+    mail: bob@example.org
+    userPassword: bob-pass
+
+    # A plain OpenCloud group, read by OpenCloud from ou=groups.
+    dn: cn=engineering,ou=groups,dc=example,dc=org
+    objectClass: groupOfNames
+    cn: engineering
+    member: uid=alice,ou=users,dc=example,dc=org
+    member: uid=bob,ou=users,dc=example,dc=org
+
+    # Role groups, mapped by Keycloak to realm roles and the roles claim.
+    dn: cn=opencloudAdmin,ou=roles,dc=example,dc=org
+    objectClass: groupOfNames
+    cn: opencloudAdmin
+    member: uid=alice,ou=users,dc=example,dc=org
+
+    dn: cn=opencloudUser,ou=roles,dc=example,dc=org
+    objectClass: groupOfNames
+    cn: opencloudUser
+    member: uid=bob,ou=users,dc=example,dc=org
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openldap
+spec:
+  selector:
+    matchLabels: {app: openldap}
+  template:
+    metadata:
+      labels: {app: openldap}
+    spec:
+      containers:
+        - name: openldap
+          image: docker.io/bitnamilegacy/openldap:2.6
+          env:
+            - {name: LDAP_ROOT, value: "dc=example,dc=org"}
+            - {name: LDAP_ADMIN_USERNAME, value: admin}
+            - {name: LDAP_ADMIN_PASSWORD, value: admin-pass}
+            - {name: LDAP_CUSTOM_LDIF_DIR, value: /ldifs}
+          ports:
+            - containerPort: 1389
+          readinessProbe:
+            tcpSocket: {port: 1389}
+          volumeMounts:
+            - {name: seed, mountPath: /ldifs}
+      volumes:
+        - name: seed
+          configMap: {name: ldap-seed}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openldap
+spec:
+  selector: {app: openldap}
+  ports:
+    - {port: 1389}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+spec:
+  selector:
+    matchLabels: {app: keycloak}
+  template:
+    metadata:
+      labels: {app: keycloak}
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.8.0
+          args: ["start-dev", "--import-realm"]
+          env:
+            # Fixed issuer, also for tokens fetched through a port-forward.
+            - {name: KC_HOSTNAME, value: "http://keycloak.idp.svc.cluster.local:8080"}
+            - {name: KC_HTTP_ENABLED, value: "true"}
+            - {name: KC_HEALTH_ENABLED, value: "true"}
+            - {name: KC_BOOTSTRAP_ADMIN_USERNAME, value: kcadmin}
+            - {name: KC_BOOTSTRAP_ADMIN_PASSWORD, value: kcadmin-pass}
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: {path: /health/ready, port: 9000}
+            periodSeconds: 5
+            failureThreshold: 60
+          volumeMounts:
+            - {name: realm, mountPath: /opt/keycloak/data/import}
+      volumes:
+        - name: realm
+          configMap: {name: keycloak-realm}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+spec:
+  selector: {app: keycloak}
+  ports:
+    - {port: 8080}

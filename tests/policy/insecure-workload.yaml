@@ -1,0 +1,28 @@
+# Intentionally insecure. The policy suite must reject every violation here;
+# CI asserts that a failure is reported for this file.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: insecure
+  namespace: opencloud
+spec:
+  serviceName: insecure
+  replicas: 1
+  selector:
+    matchLabels: {app: insecure}
+  template:
+    metadata:
+      labels: {app: insecure}
+    spec:
+      hostNetwork: true
+      automountServiceAccountToken: true
+      containers:
+        - name: app
+          image: example.org/app:latest
+          securityContext:
+            runAsNonRoot: false
+            allowPrivilegeEscalation: true
+            readOnlyRootFilesystem: false
+            capabilities:
+              add: [SYS_ADMIN]
+          resources: {}

@@ -1,0 +1,52 @@
+# Production-style install: Keycloak sign-in with autoprovisioning, file
+# content in S3, email notifications, Collabora, full-text search and
+# CalDAV/CardDAV. Create the referenced Secrets in the release namespace first.
+domain: example.org
+
+identity:
+  mode: oidc
+  oidc:
+    issuer: https://keycloak.example.org/realms/openCloud
+    accountUrl: https://keycloak.example.org/realms/openCloud/account
+    webClientId: web
+
+storage:
+  driver: decomposeds3
+  s3:
+    endpoint: https://s3.eu-central-1.amazonaws.com
+    region: eu-central-1
+    bucket: opencloud-files
+    existingSecret: opencloud-s3  # keys: accessKey, secretKey
+
+smtp:
+  enabled: true
+  host: smtp.example.org
+  port: 587
+  sender: "OpenCloud <noreply@example.org>"
+  username: opencloud
+  existingSecret: opencloud-smtp  # key: password
+
+collaboration:
+  enabled: true
+  app:
+    url: https://collabora.example.org
+
+tika:
+  enabled: true
+
+radicale:
+  enabled: true
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  tls:
+    - secretName: opencloud-tls
+      hosts: [cloud.example.org]
+
+persistence:
+  data:
+    size: 20Gi

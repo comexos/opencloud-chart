@@ -1,0 +1,108 @@
+{{- if .Values.radicale.enabled }}
+{{- $ctx := dict "component" "radicale" "context" . }}
+{{- $values := .Values.radicale }}
+{{- $name := include "opencloud.componentFullname" $ctx }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "opencloud.componentLabels" $ctx | nindent 4 }}
+  {{- with .Values.additionalAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  # Radicale stores collections on a local filesystem: one replica.
+  replicas: 1
+  serviceName: {{ $name }}
+  selector:
+    matchLabels:
+      {{- include "opencloud.componentSelectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "opencloud.componentPodLabels" (merge (dict "podLabels" $values.podLabels) $ctx) | nindent 8 }}
+      annotations:
+        {{- with (omit $values.podAnnotations "checksum/config") }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        checksum/config: {{ include (print $.Template.BasePath "/radicale/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "opencloud.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      {{- include "common.images.renderPullSecrets" (dict "images" (list $values.image) "context" $) | nindent 6 }}
+      {{- if $values.podSecurityContext.enabled }}
+      securityContext:
+        {{- omit $values.podSecurityContext "enabled" | toYaml | nindent 8 }}
+      {{- end }}
+      {{- with $values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: radicale
+          image: {{ include "common.images.image" (dict "imageRoot" $values.image "global" .Values.global "chart" .Chart) | quote }}
+          imagePullPolicy: {{ $values.image.pullPolicy }}
+          {{- if $values.containerSecurityContext.enabled }}
+          securityContext:
+            {{- omit $values.containerSecurityContext "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+          args: ["--config", "/etc/radicale/config"]
+          ports:
+            - name: http
+              containerPort: 5232
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /etc/radicale/config
+              subPath: config
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/radicale
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml $values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+        - name: tmp
+          emptyDir: {}
+        {{- if not $values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- else if $values.persistence.existingClaim }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $values.persistence.existingClaim | quote }}
+        {{- end }}
+  {{- if and $values.persistence.enabled (not $values.persistence.existingClaim) }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - {{ $values.persistence.accessMode | quote }}
+        {{- include "common.storage.class" (dict "persistence" $values.persistence "global" .Values.global) | nindent 8 }}
+        resources:
+          requests:
+            storage: {{ $values.persistence.size | quote }}
+  {{- end }}
+{{- end }}

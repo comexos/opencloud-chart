@@ -1,0 +1,81 @@
+# Every optional feature on, with credentials from existing Secrets, to catch
+# template and policy regressions across the whole chart.
+host: files.example.org
+identity:
+  mode: oidc
+  oidc:
+    issuer: https://keycloak.example.org/realms/openCloud
+    accountUrl: https://keycloak.example.org/realms/openCloud/account
+    audiences: [web]
+    autoprovision: false
+    userClaim: uuid
+    userCs3Claim: userid
+  ldap:
+    uri: ldaps://openldap.identity.svc.cluster.local:636
+    bindDn: cn=admin,dc=example,dc=org
+    existingSecret: opencloud-ldap
+    userBaseDn: ou=users,dc=example,dc=org
+    groupBaseDn: ou=groups,dc=example,dc=org
+    userSchemaId: entryUUID
+    groupSchemaId: entryUUID
+    disableUserMechanism: none
+    writeEnabled: false
+    serverUuid: true
+    refintEnabled: true
+    groupCreateBaseDn: ou=custom,ou=groups,dc=example,dc=org
+storage:
+  driver: decomposeds3
+  s3:
+    endpoint: http://s3.storage.svc.cluster.local:9000
+    bucket: opencloud
+    existingSecret: opencloud-s3
+smtp:
+  enabled: true
+  host: smtp.example.org
+  sender: "OpenCloud <noreply@example.org>"
+  username: opencloud
+  existingSecret: opencloud-smtp
+collaboration:
+  enabled: true
+  app:
+    url: https://collabora.example.org
+antivirus:
+  enabled: true
+  clamavSocket: tcp://clamav.antivirus.svc.cluster.local:3310
+passwordPolicy:
+  bannedPasswords: [password, opencloud]
+proxy:
+  additionalRoutes:
+    - endpoint: /custom/
+      backend: http://custom.example.svc.cluster.local:8080
+      unprotected: true
+web:
+  appsConfig:
+    maps:
+      config:
+        folderViewEnabled: false
+metrics:
+  enabled: true
+  token:
+    existingSecret: opencloud-metrics
+  serviceMonitor:
+    enabled: true
+ingress:
+  enabled: true
+  className: nginx
+  tls:
+    - secretName: opencloud-tls
+      hosts: [files.example.org]
+gatewayAPI:
+  httpRoute:
+    enabled: true
+    parentRefs:
+      - name: web
+        namespace: infrastructure
+        sectionName: https
+yjs:
+  enabled: true
+radicale:
+  enabled: true
+tika:
+  enabled: true

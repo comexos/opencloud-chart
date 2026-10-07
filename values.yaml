@@ -1,0 +1,602 @@
+# Optional overrides shared with Bitnami Common image helpers.
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  # -- Default storage class when a persistence storageClass is unset.
+  defaultStorageClass: ""
+
+# -- Overrides the chart name used in resource names.
+nameOverride: ""
+# -- Overrides the full resource name. Use it to keep existing resource names when upgrading from another chart.
+fullnameOverride: ""
+
+# -- Convenience base domain: when set and `host` is left empty, the public
+# hostname becomes cloud.<domain>.
+domain: ""
+
+# -- Public hostname of OpenCloud, used for OC_URL, Ingress, HTTPRoute and
+# the WOPI source. Defaults to cloud.<domain>.
+host: ""
+
+# -- Full public URL (OC_URL) when it is not https://<host>, for example with
+# a non-standard port. Every browser-facing URL derives from it.
+externalUrl: ""
+
+# OpenCloud container image. Defaults to the rolling channel, which the
+# Compose project tracks and yjs requires; versions there are only fixed
+# until the next one ships. The production channel (opencloudeu/opencloud,
+# 7.2.x) receives backported fixes but lacks yjs.
+image:
+  registry: docker.io
+  repository: opencloudeu/opencloud-rolling
+  # -- Image tag, kept in sync with the digest by Renovate.
+  # @default -- pinned, see values.yaml
+  tag: "8.1.0"
+  # -- Multi-arch index digest of the tag. Takes precedence over the tag;
+  # clear it to float on the tag instead.
+  # @default -- pinned, see values.yaml
+  digest: "sha256:8fc64ca861739cc62095cd558814f2eba6a90acf5998d884e439b33a47875da8"
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# -- Existing Secret whose keys are all injected as environment variables (envFrom).
+existingSecret: ""
+
+# -- Maps to OC_LOG_LEVEL: panic, fatal, error, warn, info, debug or trace.
+logLevel: info
+# -- Human-readable, colored logs instead of JSON (OC_LOG_PRETTY, OC_LOG_COLOR).
+logPretty: false
+
+# -- Maps to OC_INSECURE. Skips TLS verification for OpenCloud's own calls to
+# its public URL, the IdP and office apps. Only for self-signed test setups.
+insecure: false
+
+# -- Extra services started inside the single OpenCloud process
+# (OC_ADD_RUN_SERVICES). The chart adds notifications, collaboration and
+# antivirus itself when those features are enabled.
+additionalServices: []
+# -- Services excluded from the OpenCloud process (OC_EXCLUDE_RUN_SERVICES).
+# The chart excludes idp, and idm with an external LDAP, in OIDC mode.
+excludeServices: []
+
+# -- Default language of services and the web UI as an ISO 639-1 code (OC_DEFAULT_LANGUAGE). Empty means English.
+defaultLanguage: ""
+# -- Lets clients check for updates (FRONTEND_CHECK_FOR_UPDATES).
+checkForUpdates: true
+# -- Allows HTTP Basic authentication (PROXY_ENABLE_BASIC_AUTH), for WebDAV
+# clients without OpenID Connect support. Not recommended.
+basicAuth: false
+
+# Administrator of the built-in identity management (identity.mode builtin).
+# The password is read once, when `opencloud init` creates the configuration
+# and the IDM first starts. Later changes are ignored: change it in the web UI
+# or with the OpenCloud CLI instead.
+admin:
+  # -- Existing Secret holding the initial administrator password.
+  existingSecret: ""
+  passwordSecretKey: adminPassword
+  # -- Fallback only, stored in a chart-managed Secret and visible in Helm's
+  # release history. Prefer existingSecret.
+  password: ""
+
+# -- Creates the public demo accounts (alan, mary, margaret, dennis, lynn; password "demo"). Never on production.
+demoUsers: false
+
+sharing:
+  # -- OC_SHARING_PUBLIC_SHARE_MUST_HAVE_PASSWORD.
+  publicShareMustHavePassword: true
+  # -- OC_SHARING_PUBLIC_WRITEABLE_SHARE_MUST_HAVE_PASSWORD.
+  publicWriteableShareMustHavePassword: false
+
+# Password policy for public link passwords.
+passwordPolicy:
+  disabled: false
+  minCharacters: 8
+  minLowercaseCharacters: 1
+  minUppercaseCharacters: 1
+  minDigits: 1
+  minSpecialCharacters: 1
+  # -- Passwords rejected by the policy, one per entry. Rendered into
+  # banned-password-list.txt; empty disables the list.
+  bannedPasswords: []
+
+# -- Maximum size in bytes of a folder download archive (FRONTEND_ARCHIVER_MAX_SIZE).
+archiverMaxSize: "10000000000"
+
+# User and role management. `builtin` runs OpenCloud's own LDAP (idm) and
+# OpenID Connect provider (idp). `oidc` delegates sign-in to an external
+# provider such as Keycloak and disables the built-in idp.
+identity:
+  # -- builtin or oidc
+  mode: builtin
+  oidc:
+    # -- Issuer URL including the realm, e.g. https://keycloak.example.org/realms/openCloud.
+    issuer: ""
+    # -- Account management page linked from the web UI (WEB_OPTION_ACCOUNT_EDIT_LINK_HREF).
+    accountUrl: ""
+    # -- Client ID of the web UI (WEB_OIDC_CLIENT_ID). The desktop and mobile
+    # apps use their upstream client IDs (OpenCloudDesktop, OpenCloudAndroid,
+    # OpenCloudIOS) unless overridden through extraEnv.
+    webClientId: web
+    # -- Scopes requested by the web UI (WEB_OIDC_SCOPE).
+    webScopes: openid profile email
+    # -- Allowed access-token audiences (PROXY_OIDC_AUDIENCES). Recommended
+    # for production; only honoured by OpenCloud 8.x and later.
+    audiences: []
+    # -- Claim that identifies the user (PROXY_USER_OIDC_CLAIM).
+    userClaim: sub
+    # -- User attribute the claim is matched against (PROXY_USER_CS3_CLAIM):
+    # username, userid or mail.
+    userCs3Claim: username
+    # -- Creates users in OpenCloud's LDAP on their first login (PROXY_AUTOPROVISION_ACCOUNTS).
+    # Requires a writable LDAP: the built-in idm or ldap.writeEnabled.
+    autoprovision: true
+    # -- Claim stored as the username of autoprovisioned accounts.
+    autoprovisionClaimUsername: sub
+    roleAssignment:
+      # -- oidc maps a claim to OpenCloud roles; default gives every user the user role.
+      driver: oidc
+      # -- Claim holding the role names (PROXY_ROLE_ASSIGNMENT_OIDC_CLAIM).
+      claim: roles
+      # -- Claim values mapped to OpenCloud roles, e.g.
+      # [{role_name: admin, claim_value: opencloud-admins}]. Empty keeps the
+      # upstream mapping: opencloudAdmin, opencloudSpaceAdmin, opencloudUser
+      # and opencloudGuest to admin, spaceadmin, user and user-light. OpenCloud
+      # reads this only from its config file, so the chart renders it into proxy.yaml.
+      mapping: []
+    # -- Assigns the user role to new users (GRAPH_ASSIGN_DEFAULT_USER_ROLE);
+    # set it with roleAssignment.driver default.
+    assignDefaultUserRole: false
+  # External LDAP that OpenCloud reads users and groups from. Leave uri empty
+  # to keep the built-in idm as user store.
+  ldap:
+    # -- e.g. ldaps://openldap.identity.svc.cluster.local:636. Disables the built-in idm when set.
+    uri: ""
+    # -- Skips LDAP certificate verification (OC_LDAP_INSECURE).
+    insecure: false
+    bindDn: ""
+    # -- Existing Secret holding the bind password.
+    existingSecret: ""
+    bindPasswordSecretKey: bindPassword
+    # -- Fallback only, stored in a chart-managed Secret. Prefer existingSecret.
+    bindPassword: ""
+    userBaseDn: ""
+    groupBaseDn: ""
+    userFilter: "(objectclass=inetOrgPerson)"
+    groupFilter: ""
+    # -- Attribute holding the immutable user ID: opencloudUUID with the
+    # OpenCloud LDAP schema, entryUUID for a directory managed by Keycloak.
+    userSchemaId: opencloudUUID
+    groupSchemaId: opencloudUUID
+    # -- How disabled users are detected: none, attribute or group.
+    disableUserMechanism: attribute
+    # -- OpenCloud may create and change users and groups (OC_LDAP_SERVER_WRITE_ENABLED).
+    writeEnabled: true
+    # -- The LDAP server generates the ID attribute (GRAPH_LDAP_SERVER_UUID), as with entryUUID.
+    serverUuid: false
+    # -- The server keeps group memberships consistent (GRAPH_LDAP_REFINT_ENABLED).
+    refintEnabled: false
+    # -- Subtree for groups created in OpenCloud (GRAPH_LDAP_GROUP_CREATE_BASE_DN). Empty uses groupBaseDn.
+    groupCreateBaseDn: ""
+
+# Storage driver for personal and project spaces. Choose it before the first
+# start: switching drivers does not migrate existing files.
+storage:
+  # -- posix (upstream default, files on the data volume), decomposed, or
+  # decomposeds3 (metadata on the data volume, file content in S3).
+  driver: posix
+  s3:
+    endpoint: ""
+    region: default
+    bucket: ""
+    # -- Existing Secret with the access and secret key.
+    existingSecret: ""
+    accessKeySecretKey: accessKey
+    secretKeySecretKey: secretKey
+    # -- Fallback only, stored in a chart-managed Secret. Prefer existingSecret.
+    # Both are required together when existingSecret is not set.
+    accessKey: ""
+    secretKey: ""
+
+# Email notifications. Enables the notifications service.
+smtp:
+  enabled: false
+  host: ""
+  port: 587
+  # -- Sender address, e.g. "OpenCloud <noreply@example.org>". Required: the
+  # notifications service exits without it.
+  sender: ""
+  username: ""
+  # -- Existing Secret holding the SMTP password.
+  existingSecret: ""
+  passwordSecretKey: password
+  # -- Fallback only, stored in a chart-managed Secret. Prefer existingSecret.
+  password: ""
+  # -- login, plain, crammd5, none or auto.
+  authentication: auto
+  # -- starttls, ssltls or none.
+  encryption: starttls
+  # -- Skips certificate verification of the SMTP server.
+  insecure: false
+
+# Web office integration through the collaboration (WOPI) service, which runs
+# inside the OpenCloud process. The proxy serves WOPI on the OpenCloud host
+# under /wopi and /collaboration; the office server is deployed separately,
+# for example with the Collabora Online Helm chart.
+collaboration:
+  enabled: false
+  app:
+    # -- Display name and app registry name (COLLABORATION_APP_NAME), e.g.
+    # CollaboraOnline or Euro-Office.
+    name: CollaboraOnline
+    # -- Collabora, OnlyOffice (also for Euro-Office) or Microsoft (COLLABORATION_APP_PRODUCT).
+    product: Collabora
+    # -- Public URL of the office server (COLLABORATION_APP_ADDR). Required.
+    url: ""
+    # -- Icon URL; defaults to <url>/favicon.ico.
+    icon: ""
+    # -- Skips TLS verification of the office server.
+    insecure: false
+    # -- Disables WOPI proof key validation, as needed for Euro-Office.
+    proofDisable: false
+  # -- Makes the office app the secure-view app and offers the secure-view
+  # share role. Collabora only.
+  secureView: true
+  # -- Raw app-registry.yaml (mime types and default apps) mounted into
+  # /etc/opencloud; empty keeps OpenCloud's built-in registry.
+  appRegistry: ""
+
+# Virus scanning of uploads. Enables the antivirus service and the virusscan
+# postprocessing step. The scanner is deployed separately.
+antivirus:
+  enabled: false
+  # -- clamav or icap
+  scanner: clamav
+  # -- clamd address, e.g. tcp://clamav.antivirus.svc.cluster.local:3310.
+  clamavSocket: ""
+  # -- ICAP URL, e.g. icap://icap.antivirus.svc.cluster.local:1344.
+  icapUrl: ""
+  maxScanSize: 100MB
+  # -- truncate scans only the first maxScanSize bytes; skip does not scan larger files.
+  maxScanSizeMode: truncate
+  # -- abort, continue or delete.
+  infectedFileHandling: abort
+  workers: 1
+
+# Content Security Policy served by the OpenCloud proxy. The chart adds the
+# office server and IdP origins it knows about.
+csp:
+  # -- Extra sources appended per directive, e.g. {frame-src: ["https://embed.diagrams.net/"]}.
+  extraDirectives: {}
+  # -- Replaces the generated csp.yaml entirely when set.
+  override: ""
+
+# Reverse proxy settings of the OpenCloud proxy service.
+proxy:
+  # -- Extra routes appended to the proxy's default policy (proxy.yaml
+  # additional_policies), e.g. [{endpoint: /app/, backend: "http://app:8080", unprotected: true}].
+  additionalRoutes: []
+
+web:
+  # -- Configuration of installed web extensions, rendered into apps.yaml.
+  appsConfig: {}
+
+# Exposes the proxy's debug endpoint (/metrics on port 9205) to Prometheus.
+# The endpoint serves health probes regardless of this setting.
+metrics:
+  enabled: false
+  # Bearer token protecting /metrics (PROXY_DEBUG_TOKEN). Health endpoints stay open.
+  token:
+    existingSecret: ""
+    secretKey: token
+    # -- Fallback only, stored in a chart-managed Secret. Prefer existingSecret.
+    value: ""
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: ""
+    honorLabels: false
+    additionalLabels: {}
+    annotations: {}
+    relabelings: []
+    metricRelabelings: []
+
+# Service secrets and IDs that `opencloud init` otherwise generates into
+# /etc/opencloud/opencloud.yaml on the first start. With an existing Secret
+# nothing is generated: the init container is skipped and every value comes
+# from the Secret. Create it once with scripts/service-secrets.py and never
+# regenerate it; see the README for each key's purpose and stability.
+# Supported only with identity.mode oidc and an external identity.ldap.uri.
+serviceSecrets:
+  # -- Existing Secret with the keys jwtSecret, machineAuthApiKey,
+  # systemUserApiKey, systemUserId, transferSecret, urlSigningSecret,
+  # graphApplicationId, serviceAccountId, serviceAccountSecret, wopiSecret,
+  # thumbnailsTransferToken and storageUsersMountId.
+  existingSecret: ""
+
+# OpenCloud keeps its configuration and generated secrets in /etc/opencloud
+# and all state (idm, NATS, search index, metadata and, unless S3 is used,
+# files) in /var/lib/opencloud. Disabling persistence loses everything on
+# pod replacement and is only suitable for throwaway tests.
+persistence:
+  enabled: true
+  config:
+    # -- Persistent volume for /etc/opencloud. Required unless
+    # serviceSecrets.existingSecret provides the service secrets; then an
+    # emptyDir suffices. Changing it on an existing release changes the
+    # StatefulSet's volume claim templates, which Kubernetes does not allow
+    # in place: see the README's migration section.
+    enabled: true
+    # -- Use an existing claim instead of the StatefulSet volume claim template.
+    existingClaim: ""
+    accessMode: ReadWriteOnce
+    storageClass: ""
+    size: 1Gi
+  data:
+    # -- Use an existing claim instead of the StatefulSet volume claim template.
+    existingClaim: ""
+    accessMode: ReadWriteOnce
+    storageClass: ""
+    size: 50Gi
+
+service:
+  type: ClusterIP
+  port: 9200
+  annotations: {}
+  # -- SingleStack, PreferDualStack or RequireDualStack. Empty keeps the cluster default.
+  ipFamilyPolicy: ""
+  ipFamilies: []
+
+ingress:
+  enabled: false
+  className: ""
+  # -- Large uploads need a body size limit on the controller, e.g.
+  # nginx.ingress.kubernetes.io/proxy-body-size: "0".
+  annotations: {}
+  # -- TLS entries; the host is taken from `host`.
+  tls: []
+
+gatewayAPI:
+  httpRoute:
+    enabled: false
+    annotations: {}
+    # -- Existing Gateway listeners to attach to.
+    parentRefs: []
+    # -- Defaults to `host`.
+    hostnames: []
+
+# Collaborative editing server (Hocuspocus) for the web UI, reached by
+# browsers under https://<host>/yjs through the OpenCloud proxy. Needs an
+# OpenCloud release with yjs support (8.x); disable it on the production
+# channel.
+yjs:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: opencloudeu/yjs
+    # -- Image tag, kept in sync with the digest by Renovate.
+    # @default -- pinned, see values.yaml
+    tag: "1.1.0"
+    # -- Multi-arch index digest of the tag. Takes precedence over the tag;
+    # clear it to float on the tag instead.
+    # @default -- pinned, see values.yaml
+    digest: "sha256:99c6ce4688b06544c4e17cf149ceaefb90e2043d4e83d004c4f13c637a733dc4"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  # -- Milliseconds the server gets to flush documents on shutdown; keep it below terminationGracePeriodSeconds.
+  shutdownGracePeriodMs: 15000
+  terminationGracePeriodSeconds: 20
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+  podSecurityContext:
+    enabled: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    enabled: true
+    allowPrivilegeEscalation: false
+    privileged: false
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  podLabels: {}
+  podAnnotations: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  extraEnv: {}
+
+# CalDAV and CardDAV server. The OpenCloud proxy authenticates users and
+# forwards /caldav/, /carddav/ and their .well-known paths to it.
+radicale:
+  enabled: false
+  image:
+    registry: docker.io
+    repository: opencloudeu/radicale
+    # -- Image tag, kept in sync with the digest by Renovate.
+    # @default -- pinned, see values.yaml
+    tag: "v3.8.1"
+    # -- Multi-arch index digest of the tag. Takes precedence over the tag;
+    # clear it to float on the tag instead.
+    # @default -- pinned, see values.yaml
+    digest: "sha256:28c2c44cbf241755a5cfb80eea0521ef280993da20537e2d6980dae1254e552d"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  # -- Replaces the generated Radicale configuration file entirely when set.
+  # Keep `[auth] type = http_x_remote_user`: the proxy passes the user in X-Remote-User.
+  config: ""
+  persistence:
+    enabled: true
+    existingClaim: ""
+    accessMode: ReadWriteOnce
+    storageClass: ""
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  podSecurityContext:
+    enabled: true
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    enabled: true
+    allowPrivilegeEscalation: false
+    privileged: false
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  podLabels: {}
+  podAnnotations: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+
+# Apache Tika extracts text for full-text search. Enable the bundled
+# deployment, or point externalUrl at an existing Tika server.
+tika:
+  enabled: false
+  # -- Existing Tika server, e.g. http://tika.search.svc.cluster.local:9998. Used instead of the bundled deployment.
+  externalUrl: ""
+  image:
+    registry: docker.io
+    repository: apache/tika
+    # -- Image tag, kept in sync with the digest by Renovate.
+    # @default -- pinned, see values.yaml
+    tag: "4.1.0"
+    # -- Multi-arch index digest of the tag. Takes precedence over the tag;
+    # clear it to float on the tag instead.
+    # @default -- pinned, see values.yaml
+    digest: "sha256:06bcdbd09aca073293e5a171ad161418cc93c91d58d9e4e205064eade84889d4"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+  podSecurityContext:
+    enabled: true
+    runAsUser: 35002
+    runAsGroup: 35002
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    enabled: true
+    allowPrivilegeEscalation: false
+    privileged: false
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  podLabels: {}
+  podAnnotations: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  labels: {}
+  automountServiceAccountToken: false
+
+# -- OpenCloud's requests are starting points; the single process runs every
+# service, so tune them from measured load.
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+# -- Resources of the init container that runs `opencloud init`.
+initResources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+podSecurityContext:
+  enabled: true
+  # -- The published image's non-root user; adjust if a custom image uses a different UID/GID.
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  enabled: true
+  allowPrivilegeEscalation: false
+  privileged: false
+  runAsNonRoot: true
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+# Startup probe on `/healthz` of the proxy debug port. Allows five minutes of startup before liveness checks begin.
+startupProbe:
+  enabled: true
+  initialDelaySeconds: 0
+  periodSeconds: 5
+  timeoutSeconds: 5
+  failureThreshold: 60
+  successThreshold: 1
+# Liveness probe on `/healthz` of the proxy debug port.
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 0
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+# Readiness probe on `/readyz` of the proxy debug port.
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 0
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+
+# -- Seconds OpenCloud gets to shut down and flush NATS and the search index.
+terminationGracePeriodSeconds: 60
+# -- Labels added to every resource.
+additionalLabels: {}
+# -- Annotations added to every resource.
+additionalAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+# -- OpenCloud calls its own public URL (uploads go through https://<host>/data),
+# so the host must resolve and be reachable from the pod. Use hostAliases
+# when cluster DNS does not resolve it to the Ingress or Gateway.
+hostAliases: []
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+# -- Extra environment variables as plain name/value pairs, for any OpenCloud
+# setting not exposed above.
+extraEnv: {}
+# -- Extra environment variables from the chart-managed Secret.
+extraSecretEnv: {}
+# -- Extra environment variables as full Kubernetes `env` entries (for example `valueFrom.secretKeyRef`).
+extraEnvVars: []
+# -- Extra init containers, for example to copy web extensions into
+# /var/lib/opencloud/web/assets/apps on the data volume.
+extraInitContainers: []
+extraVolumes: []
+extraVolumeMounts: []

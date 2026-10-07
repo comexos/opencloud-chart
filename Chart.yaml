@@ -1,0 +1,23 @@
+apiVersion: v2
+name: opencloud
+description: Helm chart for OpenCloud, the file sync and share platform
+type: application
+version: 0.1.0
+# Kept in step with image.tag in values.yaml.
+# renovate: image=docker.io/opencloudeu/opencloud-rolling
+appVersion: "8.1.0"
+home: https://opencloud.eu
+icon: https://raw.githubusercontent.com/opencloud-eu/opencloud-compose/main/config/keycloak/themes/opencloud/login/resources/img/logo.svg
+keywords:
+  - opencloud
+  - file-sharing
+  - webdav
+sources:
+  - https://github.com/opencloud-eu/opencloud
+  - https://github.com/opencloud-eu/opencloud-compose
+dependencies:
+  - name: common
+    version: 2.41.0
+    repository: oci://registry-1.docker.io/bitnamicharts
+annotations:
+  artifacthub.io/license: Apache-2.0

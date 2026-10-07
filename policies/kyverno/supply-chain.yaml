@@ -1,0 +1,36 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: chart-require-image-digest
+  annotations:
+    policies.kyverno.io/title: Images pinned by digest
+    policies.kyverno.io/description: >-
+      Mutable tags such as :latest can change under the chart. The chart pins its images by digest by default; a bare tag override is rejected.
+spec:
+  evaluation:
+    background:
+      enabled: true
+  validationActions: [Deny]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs"]
+  variables:
+    - name: podSpec
+      expression: "object.kind == 'Pod' ? object.spec : object.spec.template.spec"
+    - name: allContainers
+      expression: "variables.podSpec.containers + variables.podSpec.?initContainers.orValue([])"
+  validations:
+    - message: Every image must be referenced by digest (image@sha256:...).
+      expression: >-
+        variables.allContainers.all(c, c.image.contains('@sha256:'))

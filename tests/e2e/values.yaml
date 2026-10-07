@@ -1,0 +1,49 @@
+# OpenCloud for tests/e2e/run.sh: Keycloak shared directory with the test
+# OpenLDAP, every companion enabled, plain HTTP inside the cluster. The public
+# URL is the in-cluster Service, so OpenCloud's calls to itself resolve.
+externalUrl: http://opencloud.oc.svc.cluster.local:9200
+identity:
+  mode: oidc
+  oidc:
+    issuer: http://keycloak.idp.svc.cluster.local:8080/realms/openCloud
+    accountUrl: http://keycloak.idp.svc.cluster.local:8080/realms/openCloud/account
+    autoprovision: false
+    userClaim: uuid
+    userCs3Claim: userid
+  ldap:
+    uri: ldap://openldap.idp.svc.cluster.local:1389
+    bindDn: cn=admin,dc=example,dc=org
+    existingSecret: ldap-bind
+    userBaseDn: ou=users,dc=example,dc=org
+    groupBaseDn: ou=groups,dc=example,dc=org
+    userSchemaId: entryUUID
+    groupSchemaId: entryUUID
+    disableUserMechanism: none
+    writeEnabled: false
+    serverUuid: true
+smtp:
+  enabled: true
+  host: smtp.invalid
+  sender: "OpenCloud <noreply@example.org>"
+collaboration:
+  enabled: true
+  app:
+    url: https://office.invalid
+tika:
+  enabled: true
+radicale:
+  enabled: true
+passwordPolicy:
+  bannedPasswords: [password]
+web:
+  appsConfig:
+    maps:
+      config:
+        folderViewEnabled: false
+metrics:
+  enabled: true
+  token:
+    value: e2e-metrics-token
+persistence:
+  data:
+    size: 2Gi

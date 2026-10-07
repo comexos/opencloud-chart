@@ -1,0 +1,36 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: chart-require-resource-requests
+  annotations:
+    policies.kyverno.io/title: Resource requests set
+    policies.kyverno.io/description: >-
+      CPU and memory requests are required so the scheduler and the HorizontalPodAutoscaler have a basis. Limits are not required: the chart leaves CPU limits unset by default to avoid throttling uploads and thumbnail generation.
+spec:
+  evaluation:
+    background:
+      enabled: true
+  validationActions: [Deny]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs"]
+  variables:
+    - name: podSpec
+      expression: "object.kind == 'Pod' ? object.spec : object.spec.template.spec"
+    - name: allContainers
+      expression: "variables.podSpec.containers + variables.podSpec.?initContainers.orValue([])"
+  validations:
+    - message: Every container needs CPU and memory requests.
+      expression: >-
+        variables.allContainers.all(c, has(c.resources) && has(c.resources.requests) && has(c.resources.requests.cpu) && has(c.resources.requests.memory))

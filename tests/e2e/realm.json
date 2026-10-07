@@ -1,0 +1,104 @@
+{
+  "realm": "openCloud",
+  "enabled": true,
+  "sslRequired": "none",
+  "roles": {
+    "realm": [
+      {"name": "opencloudAdmin"},
+      {"name": "opencloudSpaceAdmin"},
+      {"name": "opencloudUser"},
+      {"name": "opencloudGuest"}
+    ]
+  },
+  "clientScopes": [
+    {
+      "name": "openid-basics",
+      "protocol": "openid-connect",
+      "attributes": {"include.in.token.scope": "false"},
+      "protocolMappers": [
+        {"name": "sub", "protocol": "openid-connect", "protocolMapper": "oidc-sub-mapper",
+         "config": {"access.token.claim": "true", "introspection.token.claim": "true"}},
+        {"name": "username", "protocol": "openid-connect", "protocolMapper": "oidc-usermodel-attribute-mapper",
+         "config": {"user.attribute": "username", "claim.name": "preferred_username", "jsonType.label": "String",
+                    "id.token.claim": "true", "access.token.claim": "true", "userinfo.token.claim": "true"}},
+        {"name": "email", "protocol": "openid-connect", "protocolMapper": "oidc-usermodel-attribute-mapper",
+         "config": {"user.attribute": "email", "claim.name": "email", "jsonType.label": "String",
+                    "id.token.claim": "true", "access.token.claim": "true", "userinfo.token.claim": "true"}},
+        {"name": "full name", "protocol": "openid-connect", "protocolMapper": "oidc-full-name-mapper",
+         "config": {"id.token.claim": "true", "access.token.claim": "true", "userinfo.token.claim": "true"}}
+      ]
+    },
+    {
+      "name": "opencloud",
+      "description": "The two claims OpenCloud's shared-directory mode needs: uuid (LDAP entryUUID) and roles.",
+      "protocol": "openid-connect",
+      "attributes": {"include.in.token.scope": "false"},
+      "protocolMappers": [
+        {"name": "uuid", "protocol": "openid-connect", "protocolMapper": "oidc-usermodel-attribute-mapper",
+         "config": {"user.attribute": "uuid", "claim.name": "uuid", "jsonType.label": "String",
+                    "id.token.claim": "true", "access.token.claim": "true", "userinfo.token.claim": "true"}},
+        {"name": "roles", "protocol": "openid-connect", "protocolMapper": "oidc-usermodel-realm-role-mapper",
+         "config": {"claim.name": "roles", "multivalued": "true", "jsonType.label": "String",
+                    "id.token.claim": "true", "access.token.claim": "true", "userinfo.token.claim": "true"}}
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "web",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": ["*"],
+      "webOrigins": ["*"],
+      "defaultClientScopes": ["openid-basics", "opencloud"]
+    }
+  ],
+  "components": {
+    "org.keycloak.storage.UserStorageProvider": [
+      {
+        "name": "ldap",
+        "providerId": "ldap",
+        "config": {
+          "enabled": ["true"],
+          "priority": ["0"],
+          "editMode": ["READ_ONLY"],
+          "vendor": ["other"],
+          "connectionUrl": ["ldap://openldap.idp.svc.cluster.local:1389"],
+          "bindDn": ["cn=admin,dc=example,dc=org"],
+          "bindCredential": ["admin-pass"],
+          "authType": ["simple"],
+          "usersDn": ["ou=users,dc=example,dc=org"],
+          "searchScope": ["1"],
+          "userObjectClasses": ["inetOrgPerson"],
+          "usernameLDAPAttribute": ["uid"],
+          "rdnLDAPAttribute": ["uid"],
+          "uuidLDAPAttribute": ["entryUUID"],
+          "importEnabled": ["true"],
+          "syncRegistrations": ["false"],
+          "pagination": ["false"],
+          "trustEmail": ["true"],
+          "cachePolicy": ["NO_CACHE"]
+        },
+        "subComponents": {
+          "org.keycloak.storage.ldap.mappers.LDAPStorageMapper": [
+            {"name": "username", "providerId": "user-attribute-ldap-mapper",
+             "config": {"ldap.attribute": ["uid"], "user.model.attribute": ["username"], "read.only": ["true"], "is.mandatory.in.ldap": ["true"], "always.read.value.from.ldap": ["false"]}},
+            {"name": "email", "providerId": "user-attribute-ldap-mapper",
+             "config": {"ldap.attribute": ["mail"], "user.model.attribute": ["email"], "read.only": ["true"], "is.mandatory.in.ldap": ["false"], "always.read.value.from.ldap": ["false"]}},
+            {"name": "first name", "providerId": "user-attribute-ldap-mapper",
+             "config": {"ldap.attribute": ["givenName"], "user.model.attribute": ["firstName"], "read.only": ["true"], "is.mandatory.in.ldap": ["false"], "always.read.value.from.ldap": ["false"]}},
+            {"name": "last name", "providerId": "user-attribute-ldap-mapper",
+             "config": {"ldap.attribute": ["sn"], "user.model.attribute": ["lastName"], "read.only": ["true"], "is.mandatory.in.ldap": ["true"], "always.read.value.from.ldap": ["false"]}},
+            {"name": "uuid", "providerId": "user-attribute-ldap-mapper",
+             "config": {"ldap.attribute": ["entryUUID"], "user.model.attribute": ["uuid"], "read.only": ["true"], "is.mandatory.in.ldap": ["false"], "always.read.value.from.ldap": ["true"]}},
+            {"name": "roles", "providerId": "role-ldap-mapper",
+             "config": {"roles.dn": ["ou=roles,dc=example,dc=org"], "role.name.ldap.attribute": ["cn"], "role.object.classes": ["groupOfNames"],
+                        "membership.ldap.attribute": ["member"], "membership.attribute.type": ["DN"], "membership.user.ldap.attribute": ["uid"],
+                        "mode": ["READ_ONLY"], "user.roles.retrieve.strategy": ["LOAD_ROLES_BY_MEMBER_ATTRIBUTE"], "use.realm.roles.mapping": ["true"]}}
+          ]
+        }
+      }
+    ]
+  }
+}

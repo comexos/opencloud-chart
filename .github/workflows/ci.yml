@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # renovate: datasource=github-releases depName=helm/helm
+  HELM_VERSION: v4.3.0
+
+jobs:
+  lint:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install Python test dependencies
+        run: pip install --require-hashes -r ci/requirements.txt
+      - name: Lint Helm chart and render configurations
+        run: scripts/render-matrix.sh "$RUNNER_TEMP/rendered"
+      - name: Lint YAML
+        run: yamllint -c .yamllint.yaml Chart.yaml values.yaml ci examples policies .github
+      - name: Validate values schema is JSON
+        run: python3 -m json.tool values.schema.json > /dev/null
+      - name: Lint GitHub workflows
+        run: >-
+          docker run --rm -v "$PWD:/repo" -w /repo
+          rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+      - name: Unit tests
+        run: |
+          python3 tests/render.py
+          python3 tests/e2e/test_harness.py
+
+  docs:
+    name: Generated values documentation is current
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Regenerate README.md with helm-docs and require no changes
+        run: scripts/generate-docs.sh --check
+
+  policy:
+    name: Manifest schema and policy checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: lint
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: Render configurations
+        run: scripts/render-matrix.sh "$RUNNER_TEMP/rendered"
+      - name: Validate schema and Kyverno policies
+        run: scripts/validate-manifests.sh "$RUNNER_TEMP/rendered"

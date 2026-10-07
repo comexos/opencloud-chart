@@ -1,0 +1,222 @@
+{{- include "opencloud.validateValues" . }}
+{{- $fullname := include "opencloud.fullname" . }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "opencloud.labels" . | nindent 4 }}
+  {{- with .Values.additionalAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  # OpenCloud runs every service in one process with embedded NATS and
+  # local state, so exactly one replica is supported.
+  replicas: 1
+  serviceName: {{ $fullname }}-headless
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "opencloud.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "opencloud.componentPodLabels" (dict "component" "server" "podLabels" .Values.podLabels "context" .) | nindent 8 }}
+      annotations:
+        {{- with (omit .Values.podAnnotations "checksum/config" "checksum/secret") }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        checksum/config: {{ include (print $.Template.BasePath "/opencloud/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/opencloud/secret.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "opencloud.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- include "common.images.renderPullSecrets" (dict "images" (list .Values.image) "context" $) | nindent 6 }}
+      {{- if .Values.podSecurityContext.enabled }}
+      securityContext:
+        {{- omit .Values.podSecurityContext "enabled" | toYaml | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hostAliases }}
+      hostAliases: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $external := eq (include "opencloud.externalServiceSecrets" .) "true" }}
+      {{- if or (not $external) .Values.extraInitContainers }}
+      initContainers:
+        {{- if not $external }}
+        # Generates /etc/opencloud/opencloud.yaml with random service secrets
+        # on the first start only; the file lives on the config volume.
+        - name: init-config
+          image: {{ include "opencloud.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.containerSecurityContext.enabled }}
+          securityContext:
+            {{- omit .Values.containerSecurityContext "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              if [ -s /etc/opencloud/opencloud.yaml ]; then
+                echo "opencloud.yaml exists, skipping opencloud init"
+              else
+                opencloud init --quiet
+                echo "opencloud.yaml generated"
+              fi
+          env:
+            - name: OC_INSECURE
+              value: {{ .Values.insecure | quote }}
+            {{- if or .Values.admin.existingSecret .Values.admin.password }}
+            - name: IDM_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- include "opencloud.secretRef" (dict "existingSecret" .Values.admin.existingSecret "existingKey" .Values.admin.passwordSecretKey "managedKey" "adminPassword" "context" .) | nindent 18 }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/opencloud
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.initResources | nindent 12 }}
+        {{- end }}
+        {{- with .Values.extraInitContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: opencloud
+          image: {{ include "opencloud.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.containerSecurityContext.enabled }}
+          securityContext:
+            {{- omit .Values.containerSecurityContext "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+          args: ["server"]
+          env:
+            {{- $overrides := .Values.extraEnvVars | default list }}
+            {{- range $key, $value := .Values.extraEnv }}
+            {{- $overrides = append $overrides (dict "name" $key "value" (toString $value)) }}
+            {{- end }}
+            {{- $names := list }}
+            {{- range $overrides }}{{ $names = append $names .name }}{{ end }}
+            {{- range include "opencloud.env" . | fromYamlArray }}
+            {{- if not (has .name $names) }}
+            - {{ toYaml . | nindent 14 | trim }}
+            {{- end }}
+            {{- end }}
+            {{- with $overrides }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- if or .Values.extraSecretEnv .Values.existingSecret }}
+          envFrom:
+            {{- if .Values.extraSecretEnv }}
+            - secretRef:
+                name: {{ $fullname }}-env
+            {{- end }}
+            {{- with .Values.existingSecret }}
+            - secretRef:
+                name: {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 9200
+            - name: debug
+              containerPort: {{ include "opencloud.debugPort" . }}
+          {{- if .Values.startupProbe.enabled }}
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: debug
+            {{- omit .Values.startupProbe "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: debug
+            {{- omit .Values.livenessProbe "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: debug
+            {{- omit .Values.readinessProbe "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/opencloud
+            - name: data
+              mountPath: /var/lib/opencloud
+            - name: tmp
+              mountPath: /tmp
+            {{- range $file := include "opencloud.configFiles" . | fromYamlArray }}
+            - name: files
+              mountPath: /etc/opencloud/{{ $file }}
+              subPath: {{ $file }}
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: files
+          configMap:
+            name: {{ $fullname }}-files
+        {{- range $name, $persistent := dict "config" (eq (include "opencloud.configPersistent" $) "true") "data" $.Values.persistence.enabled }}
+        {{- $p := index $.Values.persistence $name }}
+        {{- if not $persistent }}
+        - name: {{ $name }}
+          emptyDir: {}
+        {{- else if $p.existingClaim }}
+        - name: {{ $name }}
+          persistentVolumeClaim:
+            claimName: {{ $p.existingClaim | quote }}
+        {{- end }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+  {{- $templates := list }}
+  {{- range $name, $persistent := dict "config" (eq (include "opencloud.configPersistent" $) "true") "data" $.Values.persistence.enabled }}
+  {{- if and $persistent (not (index $.Values.persistence $name).existingClaim) }}
+  {{- $templates = append $templates $name }}
+  {{- end }}
+  {{- end }}
+  {{- if $templates }}
+  volumeClaimTemplates:
+    {{- range $name := $templates }}
+    {{- $p := index $.Values.persistence $name }}
+    - metadata:
+        name: {{ $name }}
+      spec:
+        accessModes:
+          - {{ $p.accessMode | quote }}
+        {{- include "common.storage.class" (dict "persistence" $p "global" $.Values.global) | nindent 8 }}
+        resources:
+          requests:
+            storage: {{ $p.size | quote }}
+    {{- end }}
+  {{- end }}

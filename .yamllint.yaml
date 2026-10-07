@@ -1,0 +1,15 @@
+extends: default
+rules:
+  # Long CEL expressions in the Kyverno policies and generated comments are fine.
+  line-length: disable
+  # Helm values and Kubernetes manifests conventionally omit the document marker.
+  document-start: disable
+  # Allow the empty-object/list shorthand used throughout values.yaml.
+  empty-values:
+    forbid-in-block-mappings: false
+    forbid-in-flow-mappings: false
+  truthy:
+    # GitHub Actions uses the bare `on:` key for triggers.
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1

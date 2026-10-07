@@ -1,0 +1,5 @@
+# Hash-pinned CI dependencies, compiled into requirements.txt (Renovate keeps it current):
+#   pip-compile --generate-hashes --strip-extras --output-file=requirements.txt requirements.in
+# Install with: pip install --require-hashes -r requirements.txt
+PyYAML==6.0.3
+yamllint==1.38.0

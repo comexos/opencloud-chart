@@ -1,0 +1,86 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "timezone": "Europe/Berlin",
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "prConcurrentLimit": 5,
+  "postUpdateOptions": [
+    "helmUpdateSubChartArchives"
+  ],
+  "customManagers": [
+    {
+      "description": "Container images in values.yaml: registry, repository, tag and digest in that order, kept together.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)values\\.yaml$/"
+      ],
+      "matchStrings": [
+        "registry: (?<registry>[^\\s\"]+)\\n\\s+repository: (?<depName>[^\\s\"]+)\\n(?:\\s+#.*\\n)*\\s+tag: \"(?<currentValue>[^\"]+)\"\\n(?:\\s+#.*\\n)*\\s+digest: \"(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "datasourceTemplate": "docker",
+      "packageNameTemplate": "{{{registry}}}/{{{depName}}}",
+      "depNameTemplate": "{{{registry}}}/{{{depName}}}"
+    },
+    {
+      "description": "Chart appVersion follows the main image tag; it shares the depName, and so the branch, with the values.yaml pin.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^Chart\\.yaml$/"
+      ],
+      "matchStrings": [
+        "# renovate: image=(?<depName>\\S+)\\nappVersion: \"(?<currentValue>[^\"]+)\""
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "description": "Helm version used by the workflows.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n\\s+HELM_VERSION: (?<currentValue>\\S+)"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Bitnami Common is vendored; the PR carries the rebuilt archive.",
+      "matchManagers": [
+        "helmv3"
+      ],
+      "groupName": "Bitnami Common"
+    },
+    {
+      "description": "Pinned GitHub Actions: one weekly PR.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "GitHub Actions"
+    },
+    {
+      "description": "Hash-pinned Python CI tools.",
+      "matchManagers": [
+        "pip-compile"
+      ],
+      "groupName": "CI Python tools"
+    }
+  ],
+  "pip-compile": {
+    "managerFilePatterns": [
+      "/^ci/requirements\\.txt$/"
+    ]
+  },
+  "helm-values": {
+    "enabled": false
+  },
+  "pip_requirements": {
+    "enabled": false
+  }
+}

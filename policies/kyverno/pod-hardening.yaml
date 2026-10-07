@@ -1,0 +1,60 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: chart-pod-hardening
+  annotations:
+    policies.kyverno.io/title: Pod hardening for the OpenCloud chart
+    policies.kyverno.io/description: >-
+      Non-root, no privilege escalation, read-only root filesystem, all capabilities dropped and none added, RuntimeDefault seccomp, no automatic API token mounting, no host namespaces.
+spec:
+  evaluation:
+    background:
+      enabled: true
+  validationActions: [Deny]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs"]
+  variables:
+    - name: podSpec
+      expression: "object.kind == 'Pod' ? object.spec : object.spec.template.spec"
+    - name: allContainers
+      expression: "variables.podSpec.containers + variables.podSpec.?initContainers.orValue([])"
+  validations:
+    - message: Containers must run as non-root.
+      expression: >-
+        variables.podSpec.?securityContext.?runAsNonRoot.orValue(false) == true ||
+        variables.allContainers.all(c, c.?securityContext.?runAsNonRoot.orValue(false) == true)
+    - message: allowPrivilegeEscalation must be false in every container.
+      expression: >-
+        variables.allContainers.all(c, c.?securityContext.?allowPrivilegeEscalation.orValue(true) == false)
+    - message: The root filesystem must be read-only in every container.
+      expression: >-
+        variables.allContainers.all(c, c.?securityContext.?readOnlyRootFilesystem.orValue(false) == true)
+    - message: Every container must drop ALL capabilities.
+      expression: >-
+        variables.allContainers.all(c, c.?securityContext.?capabilities.?drop.orValue([]).exists(x, x == 'ALL'))
+    - message: No capabilities may be added; OpenCloud and its companions bind only unprivileged ports.
+      expression: >-
+        variables.allContainers.all(c, size(c.?securityContext.?capabilities.?add.orValue([])) == 0)
+    - message: The pod must use the RuntimeDefault seccomp profile.
+      expression: >-
+        variables.podSpec.?securityContext.?seccompProfile.?type.orValue('') == 'RuntimeDefault'
+    - message: automountServiceAccountToken must be false; the chart grants no RBAC.
+      expression: >-
+        variables.podSpec.?automountServiceAccountToken.orValue(true) == false
+    - message: Host namespaces must not be shared.
+      expression: >-
+        variables.podSpec.?hostNetwork.orValue(false) == false &&
+        variables.podSpec.?hostPID.orValue(false) == false &&
+        variables.podSpec.?hostIPC.orValue(false) == false

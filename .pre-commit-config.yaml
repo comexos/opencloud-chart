@@ -1,0 +1,27 @@
+# Local checks that mirror CI. Install once with: pip install pre-commit && pre-commit install
+repos:
+  - repo: local
+    hooks:
+      - id: helm-lint
+        name: helm lint (strict)
+        entry: helm lint --strict . -f examples/keycloak-s3.yaml
+        language: system
+        pass_filenames: false
+        files: ^(templates/|values\.yaml|values\.schema\.json|Chart\.yaml)
+      - id: yamllint
+        name: yamllint
+        entry: yamllint -c .yamllint.yaml
+        language: system
+        files: ^(Chart\.yaml|values\.yaml|ci/|examples/|policies/|\.github/).*\.ya?ml$
+      - id: helm-docs
+        name: regenerate values documentation
+        entry: scripts/generate-docs.sh
+        language: system
+        pass_filenames: false
+        files: ^(values\.yaml|README\.md(\.gotmpl)?|Chart\.yaml|scripts/generate-docs\.sh)$
+      - id: render-tests
+        name: template unit tests
+        entry: python3 tests/render.py
+        language: system
+        pass_filenames: false
+        files: ^(templates/|values\.yaml|values\.schema\.json|tests/)

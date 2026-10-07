@@ -1,0 +1,4 @@
+# Smallest supported shape: built-in identity, files on the data volume.
+domain: example.org
+admin:
+  existingSecret: opencloud-admin
