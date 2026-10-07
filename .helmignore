@@ -1,0 +1,17 @@
+.git/
+.agents/
+.codex/
+.claude/
+tests/
+__pycache__/
+.github/
+.yamllint.yaml
+.pre-commit-config.yaml
+ci/
+policies/
+scripts/
+rendered/
+rendered-check/
+dist/
+README.md.gotmpl
+renovate.json

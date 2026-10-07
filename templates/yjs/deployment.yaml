@@ -1,0 +1,94 @@
+{{- if .Values.yjs.enabled }}
+{{- $ctx := dict "component" "yjs" "context" . }}
+{{- $values := .Values.yjs }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opencloud.componentFullname" $ctx }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "opencloud.componentLabels" $ctx | nindent 4 }}
+  {{- with .Values.additionalAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  # Hocuspocus keeps each document in memory; one replica keeps all editors
+  # of a document on the same server.
+  replicas: 1
+  # Finish flushing the old server before a new one accepts editors.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "opencloud.componentSelectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "opencloud.componentPodLabels" (merge (dict "podLabels" $values.podLabels) $ctx) | nindent 8 }}
+      {{- with $values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "opencloud.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ $values.terminationGracePeriodSeconds }}
+      {{- include "common.images.renderPullSecrets" (dict "images" (list $values.image) "context" $) | nindent 6 }}
+      {{- if $values.podSecurityContext.enabled }}
+      securityContext:
+        {{- omit $values.podSecurityContext "enabled" | toYaml | nindent 8 }}
+      {{- end }}
+      {{- with $values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: yjs
+          image: {{ include "common.images.image" (dict "imageRoot" $values.image "global" .Values.global "chart" .Chart) | quote }}
+          imagePullPolicy: {{ $values.image.pullPolicy }}
+          {{- if $values.containerSecurityContext.enabled }}
+          securityContext:
+            {{- omit $values.containerSecurityContext "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+          env:
+            - name: PORT
+              value: "1234"
+            # Internal address, no TLS inside the cluster.
+            - name: OPENCLOUD_URL
+              value: {{ printf "http://%s:%v" (include "opencloud.fullname" .) .Values.service.port | quote }}
+            - name: SHUTDOWN_GRACE_PERIOD_MS
+              value: {{ $values.shutdownGracePeriodMs | quote }}
+            {{- range $key, $value := $values.extraEnv }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 1234
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml $values.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

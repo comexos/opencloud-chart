@@ -1,0 +1,23 @@
+OpenCloud Helm chart
+Copyright 2026 Thomas Kaltenstein (Sovereign Systems)
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This chart bundles the following third-party software in charts/:
+
+  Bitnami Common (charts/common-*.tgz, version in Chart.lock)
+    Copyright Broadcom, Inc. All Rights Reserved.
+    Licensed under the Apache License, Version 2.0.
+    https://github.com/bitnami/charts/tree/main/bitnami/common
+
+This chart deploys, but does not include or modify, the following separately
+licensed software; their licences apply to those programs, not to this chart:
+
+  OpenCloud (opencloudeu/opencloud) - Apache License 2.0
+  OpenCloud yjs server (opencloudeu/yjs) - see github.com/opencloud-eu/web
+  Radicale (opencloudeu/radicale) - GNU GPL v3
+  Apache Tika (apache/tika) - Apache License 2.0
+
+The deployment layout follows the OpenCloud Docker Compose project
+(github.com/opencloud-eu/opencloud-compose, GNU GPL v3). No files from that
+project are included in this chart.

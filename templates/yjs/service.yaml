@@ -1,0 +1,20 @@
+{{- if .Values.yjs.enabled }}
+{{- $ctx := dict "component" "yjs" "context" . }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "opencloud.componentFullname" $ctx }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "opencloud.componentLabels" $ctx | nindent 4 }}
+  annotations:
+    {{- include "opencloud.annotations" (dict "specific" dict "context" .) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "opencloud.componentSelectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: http
+      port: 1234
+      targetPort: http
+{{- end }}

@@ -1,0 +1,17 @@
+{{- if .Values.radicale.enabled }}
+{{- $ctx := dict "component" "radicale" "context" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "opencloud.componentFullname" $ctx }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "opencloud.componentLabels" $ctx | nindent 4 }}
+  {{- with .Values.additionalAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  config: |
+    {{- include "opencloud.radicaleConfig" . | nindent 4 }}
+{{- end }}
