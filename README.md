@@ -108,7 +108,7 @@ The chart validates required settings and credential references during rendering
 
 ### Verify the signature
 
-The release workflow signs published chart digests with cosign:
+The release workflow signs published chart digests with cosign 3, which stores the signature as an OCI referrer in the new bundle format; verify with cosign 3 or newer (cosign 2 reports "no signatures found"):
 
 ```sh
 cosign verify ghcr.io/s7n-systems/charts/opencloud:0.2.0 \
