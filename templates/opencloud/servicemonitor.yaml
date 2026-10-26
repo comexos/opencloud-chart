@@ -21,8 +21,9 @@ spec:
     matchNames:
       - {{ .Release.Namespace }}
   endpoints:
-    # In single-process mode every service exposes the same registry, so the
-    # proxy's debug endpoint covers all of OpenCloud.
+    # The proxy's debug endpoint: in topology single it covers every service,
+    # which share one metrics registry; in topology split it covers the
+    # frontend pods.
     - port: debug
       path: /metrics
       interval: {{ .Values.metrics.serviceMonitor.interval }}

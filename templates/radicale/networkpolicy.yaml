@@ -19,10 +19,11 @@ spec:
     - Ingress
   ingress:
     - from:
-        # A podSelector alone restricts peers to this namespace.
+        # A podSelector alone restricts peers to this namespace. Only the
+        # OpenCloud proxy, which authenticates users, may reach Radicale.
         - podSelector:
             matchLabels:
-              {{- include "opencloud.selectorLabels" . | nindent 14 }}
+              {{- include "opencloud.proxySelectorLabels" . | nindent 14 }}
       ports:
         - protocol: TCP
           port: 5232

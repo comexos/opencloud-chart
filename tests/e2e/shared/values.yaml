@@ -1,0 +1,30 @@
+---
+# On top of ../values.yaml: topology split with two storage pods on one shared
+# NFS volume (storage class nfs-rwx), two frontend pods, external NATS, service
+# secrets from a Secret. The storage pods run on different workers.
+topology: "split"
+nats:
+  address: "nats.nats.svc.cluster.local:4222"
+serviceSecrets:
+  existingSecret: "service-secrets"
+storagePods:
+  replicas: 2
+frontend:
+  replicas: 2
+persistence:
+  config:
+    enabled: false
+  data:
+    shared: true
+    accessMode: "ReadWriteMany"
+    storageClass: "nfs-rwx"
+    size: "2Gi"
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: "opencloud"
+            app.kubernetes.io/component: "server"
+        topologyKey: "kubernetes.io/hostname"
+...

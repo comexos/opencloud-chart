@@ -1,0 +1,39 @@
+---
+# Single NATS server with JetStream for topology split (registry, events,
+# caches, stores). A test stand-in for a NATS cluster; no authentication.
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata:
+  name: "nats"
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: "nats"}
+  template:
+    metadata:
+      labels: {app: "nats"}
+    spec:
+      containers:
+        - name: "nats"
+          image: "docker.io/library/nats:2.15-alpine@sha256:7ae34c25dfd6fe2e01c6483eabef20d796690fdcac6c4d94ca780a6cf9877fde"
+          args: ["-js", "-sd", "/data", "-m", "8222"]
+          ports:
+            - {name: "client", containerPort: 4222}
+          readinessProbe:
+            httpGet: {path: "/healthz", port: 8222}
+          volumeMounts:
+            - {name: "data", mountPath: "/data"}
+      volumes:
+        - name: "data"
+          emptyDir: {}
+...
+---
+apiVersion: "v1"
+kind: "Service"
+metadata:
+  name: "nats"
+spec:
+  selector: {app: "nats"}
+  ports:
+    - {name: "client", port: 4222}
+...

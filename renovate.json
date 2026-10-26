@@ -59,6 +59,16 @@
         "(?<depName>(?:docker\\.io|ghcr\\.io|quay\\.io)/[a-z0-9._/-]+):(?<currentValue>[A-Za-z0-9._-]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
       ],
       "datasourceTemplate": "docker"
+    },
+    {
+      "description": "csi-driver-nfs chart version of the shared-storage e2e test.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^tests/e2e/shared/run\\.sh$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) registryUrl=(?<registryUrl>\\S+)\\nCSI_NFS_VERSION=\"\\$\\{CSI_NFS_VERSION:-(?<currentValue>[^}]+)\\}\""
+      ]
     }
   ],
   "packageRules": [
@@ -91,7 +101,8 @@
   },
   "kubernetes": {
     "managerFilePatterns": [
-      "/^tests/e2e/infra\\.yaml$/"
+      "/^tests/e2e/infra\\.yaml$/",
+      "/^tests/e2e/shared/.+\\.yaml$/"
     ]
   },
   "helm-values": {

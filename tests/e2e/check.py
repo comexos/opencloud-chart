@@ -12,6 +12,7 @@ import base64
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -30,6 +31,19 @@ def request(method, url, token=None, data=None, headers=None):
             return response.status, response.read()
     except urllib.error.HTTPError as error:
         return error.code, error.read()
+
+
+def download(url, token, timeout=60):
+    """GET a file, waiting while OpenCloud answers 425 Too Early: an upload is
+    released only after its asynchronous postprocessing. Returns the status, the
+    body and the seconds waited; a file never released ends with 425."""
+    deadline = time.monotonic() + timeout
+    start = time.monotonic()
+    while True:
+        status, raw = request('GET', url, token)
+        if status != 425 or time.monotonic() >= deadline:
+            return status, raw, time.monotonic() - start
+        time.sleep(1)
 
 
 def check(name, condition, detail=''):
@@ -66,7 +80,7 @@ def identity_checks():
         tokens[user] = token
         check(f'{user}: token has a uuid claim', bool(claims.get('uuid')), claims)
         status, me = graph(token, 'me?$expand=memberOf,appRoleAssignments')
-        check(f'{user}: signed in to OpenCloud', status == 200, me)
+        check(f'{user}: signed in to OpenCloud', status == 200, (status, me))
         if status != 200:
             continue
         check(f'{user}: OpenCloud user ID is the LDAP entryUUID from the uuid claim', me.get('id') == claims.get('uuid'), (me.get('id'), claims.get('uuid')))
@@ -95,8 +109,9 @@ def write(marker):
     content = f'opencloud e2e {marker}\n'.encode()
     status, raw = request('PUT', f'{OC}/remote.php/webdav/{marker}.txt', tokens['alice'], data=content)
     check(f'upload {marker}.txt', status in (201, 204), (status, raw[:200]))
-    status, raw = request('GET', f'{OC}/remote.php/webdav/{marker}.txt', tokens['alice'])
-    check(f'download {marker}.txt', status == 200 and raw == content, (status, raw[:200]))
+    status, raw, waited = download(f'{OC}/remote.php/webdav/{marker}.txt', tokens['alice'])
+    check(f'download {marker}.txt' + (f' (released after {waited:.0f}s of postprocessing)' if waited >= 1 else ''),
+          status == 200 and raw == content, (status, raw[:200]))
     status, raw = request('GET', f'{OC}/remote.php/webdav/{marker}.txt', tokens['bob'])
     check("bob cannot read alice's file", status == 404, status)
     status, _ = request('PROPFIND', f'{OC}/caldav/', tokens['bob'], headers={'Depth': '1'})
@@ -109,7 +124,7 @@ def write(marker):
 
 def read(marker):
     tokens = identity_checks()
-    status, raw = request('GET', f'{OC}/remote.php/webdav/{marker}.txt', tokens['alice'])
+    status, raw, _ = download(f'{OC}/remote.php/webdav/{marker}.txt', tokens['alice'])
     check(f'{marker}.txt survived', status == 200 and raw == f'opencloud e2e {marker}\n'.encode(), (status, raw[:200]))
 
 

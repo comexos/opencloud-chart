@@ -12,18 +12,18 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/comexos/opencloud-chart/releases"><img alt="Chart version" src="https://img.shields.io/github/v/tag/comexos/opencloud-chart?sort=semver&amp;label=chart&amp;style=flat-square&amp;logo=helm&amp;logoColor=white"></a>
-  <a href="https://github.com/opencloud-eu/opencloud/releases"><img alt="OpenCloud version" src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fcomexos%2Fopencloud-chart%2Fmain%2FChart.yaml&amp;query=%24.appVersion&amp;label=opencloud&amp;color=0082c9&amp;style=flat-square"></a>
-  <a href="https://github.com/comexos/opencloud-chart/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/comexos/opencloud-chart/ci.yml?branch=main&amp;label=ci&amp;style=flat-square&amp;logo=githubactions&amp;logoColor=white"></a>
-  <a href="https://github.com/comexos/opencloud-chart/actions/workflows/release.yml"><img alt="Release" src="https://img.shields.io/github/actions/workflow/status/comexos/opencloud-chart/release.yml?label=release&amp;style=flat-square&amp;logo=githubactions&amp;logoColor=white"></a>
+  <a href="https://github.com/s7n-systems/opencloud-chart/releases"><img alt="Chart version" src="https://img.shields.io/github/v/tag/s7n-systems/opencloud-chart?sort=semver&amp;label=chart&amp;style=flat-square&amp;logo=helm&amp;logoColor=white"></a>
+  <a href="https://github.com/opencloud-eu/opencloud/releases"><img alt="OpenCloud version" src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fs7n-systems%2Fopencloud-chart%2Fmain%2FChart.yaml&amp;query=%24.appVersion&amp;label=opencloud&amp;color=0082c9&amp;style=flat-square"></a>
+  <a href="https://github.com/s7n-systems/opencloud-chart/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/s7n-systems/opencloud-chart/ci.yml?branch=main&amp;label=ci&amp;style=flat-square&amp;logo=githubactions&amp;logoColor=white"></a>
+  <a href="https://github.com/s7n-systems/opencloud-chart/actions/workflows/release.yml"><img alt="Release" src="https://img.shields.io/github/actions/workflow/status/s7n-systems/opencloud-chart/release.yml?label=release&amp;style=flat-square&amp;logo=githubactions&amp;logoColor=white"></a>
 </p>
 
 <p align="center">
-  <a href="#install"><img alt="OCI registry" src="https://img.shields.io/badge/oci-ghcr.io%2Fcomexos%2Fcharts-0f1689?style=flat-square&amp;logo=helm&amp;logoColor=white"></a>
+  <a href="#install"><img alt="OCI registry" src="https://img.shields.io/badge/oci-ghcr.io%2Fs7n-systems%2Fcharts-0f1689?style=flat-square&amp;logo=helm&amp;logoColor=white"></a>
   <a href="#verify-the-signature"><img alt="Release signing" src="https://img.shields.io/badge/signing-cosign-2e7d32?style=flat-square&amp;logo=sigstore&amp;logoColor=white"></a>
   <a href="#images"><img alt="Images pinned by digest" src="https://img.shields.io/badge/images-digest%20pinned-2e7d32?style=flat-square&amp;logo=docker&amp;logoColor=white"></a>
   <a href="renovate.json"><img alt="Renovate configuration" src="https://img.shields.io/badge/renovate-configured-1a1f6c?style=flat-square&amp;logo=renovatebot&amp;logoColor=white"></a>
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/comexos/opencloud-chart?style=flat-square"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/s7n-systems/opencloud-chart?style=flat-square"></a>
 </p>
 
 ---
@@ -41,7 +41,7 @@ The chart deploys OpenCloud as a single-process StatefulSet with persistent conf
 - [First-time setup](#first-time-setup)
 - [Configuration](#configuration)
   - [Images](#images) · [Credentials](#credentials) · [Identity](#identity) · [Service secrets](#service-secrets)
-  - [Storage](#storage) · [Networking](#networking) · [Web office](#web-office) · [Sharing](#sharing)
+  - [Storage](#storage) · [Scaling](#scaling) · [Networking](#networking) · [Web office](#web-office) · [Sharing](#sharing)
   - [Optional services](#optional-services) · [Monitoring](#monitoring) · [Security](#security)
 - [Operations](#operations)
 - [Development](#development)
@@ -55,6 +55,7 @@ The chart deploys OpenCloud as a single-process StatefulSet with persistent conf
 | **Storage** | Local files or S3-compatible object storage, with persistent local metadata |
 | **Identity** | Built-in identity services or external OIDC, with optional external LDAP and configurable role mapping |
 | **Collaboration** | yjs editing, external WOPI office integration, optional Radicale and Apache Tika |
+| **Scaling** | One pod for small installations, or a storage pod plus a horizontally scalable frontend with autoscaling and a PodDisruptionBudget; experimentally, several storage pods on one ReadWriteMany volume |
 | **Exposure** | Ingress or Gateway API HTTPRoute; configurable proxy routes and Content Security Policy |
 | **Security** | Non-root containers, read-only root filesystems, dropped capabilities, no ServiceAccount token and images pinned by digest |
 | **Observability** | Health probes, Prometheus metrics, optional bearer token and ServiceMonitor |
@@ -67,6 +68,8 @@ The chart deploys OpenCloud as a single-process StatefulSet with persistent conf
 - Persistent storage for configuration and data, or existing claims.
 - A public hostname with DNS, HTTPS termination and a certificate trusted by browsers and OpenCloud. The hostname must also resolve and be reachable from inside the cluster.
 - External services for the integrations you enable: OIDC/LDAP, S3, SMTP, an office server or an antivirus scanner.
+- For `topology: split`: an external NATS cluster with JetStream, and the metrics API (for example metrics-server) when the frontend autoscales.
+- For several storage pods (`persistence.data.shared`): a ReadWriteMany storage class whose file system supports extended attributes and `flock` across nodes, for example NFS 4.2.
 - Optional: Gateway API CRDs for HTTPRoute, Prometheus Operator CRDs for ServiceMonitor, and a NetworkPolicy-capable CNI for Radicale's access restriction.
 
 ## Install
@@ -99,7 +102,7 @@ ingress:
 helm install opencloud . --namespace opencloud -f my-values.yaml
 ```
 
-Bitnami Common is vendored in `charts/`, so a checkout needs no dependency download. To install a published version, replace `.` with `oci://ghcr.io/comexos/charts/opencloud` and add `--version 0.1.0`.
+Bitnami Common is vendored in `charts/`, so a checkout needs no dependency download. To install a published version, replace `.` with `oci://ghcr.io/s7n-systems/charts/opencloud` and add `--version 0.2.0`.
 
 The chart validates required settings and credential references during rendering. It cannot verify that Secrets exist, storage can be provisioned or external services are reachable. For an example with Keycloak, S3, SMTP and Collabora, see [examples/keycloak-s3.yaml](examples/keycloak-s3.yaml).
 
@@ -108,8 +111,8 @@ The chart validates required settings and credential references during rendering
 The release workflow signs published chart digests with cosign:
 
 ```sh
-cosign verify ghcr.io/comexos/charts/opencloud:0.1.0 \
-  --certificate-identity-regexp '^https://github\.com/comexos/opencloud-chart/\.github/workflows/release\.yml@refs/tags/v' \
+cosign verify ghcr.io/s7n-systems/charts/opencloud:0.2.0 \
+  --certificate-identity-regexp '^https://github\.com/s7n-systems/opencloud-chart/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -213,7 +216,100 @@ With service secrets supplied externally, the config volume is not needed for ge
 | `decomposed` | Data volume | Alternative local storage layout |
 | `decomposeds3` | S3 bucket | Metadata stays on the data volume; set `storage.s3` |
 
-Whatever the driver, `/var/lib/opencloud` holds local service state, including NATS JetStream, the search index, thumbnails, metadata and the built-in idm database when used, so disabling persistence loses local state on pod replacement, even if file content remains in S3. The chart supports exactly one OpenCloud replica and does not provide a distributed deployment. Volumes are `ReadWriteOnce` by default; `existingClaim` adopts existing claims instead of the StatefulSet templates.
+Whatever the driver, `/var/lib/opencloud` holds local service state, including NATS JetStream, the search index, thumbnails, metadata and the built-in idm database when used, so disabling persistence loses local state on pod replacement, even if file content remains in S3. Only one pod mounts the data volume; to scale the other services, see [Scaling](#scaling). Volumes are `ReadWriteOnce` by default; `existingClaim` adopts existing claims instead of the StatefulSet templates.
+
+### Scaling
+
+`topology` decides how OpenCloud's services are spread over pods.
+
+| | `single` (default) | `split` |
+| --- | --- | --- |
+| Pods | One StatefulSet pod runs every service, with NATS inside | The StatefulSet runs the storage services; the `<fullname>-frontend` Deployment runs everything else |
+| Scaling | None | Frontend: `frontend.replicas`, or `frontend.autoscaling` with a HorizontalPodAutoscaler on CPU. Storage: one pod, or several on a shared `ReadWriteMany` volume ([experimental](#several-storage-pods-experimental)) |
+| Requires | Nothing extra | `identity.mode: oidc` with an external `identity.ldap.uri`, `serviceSecrets.existingSecret`, and an external NATS cluster in `nats.address` |
+
+In `split`, the StatefulSet runs the services that keep state on the data volume: `storage-users`, `storage-system`, `search` and `ocm`. By default it stays at one replica because its volume is `ReadWriteOnce`; see [several storage pods](#several-storage-pods-experimental) for the alternative. Every upload, download and metadata request passes through it, including transfers to S3 with `decomposeds3`, so give it resources to match (top-level `resources`). The frontend pods run the proxy, web UI, gateway, WebDAV, Graph, sharing, thumbnails, postprocessing and the remaining services. They mount no volumes and have their own `frontend.resources` and scheduling settings. With more than one frontend pod, a PodDisruptionBudget keeps `frontend.podDisruptionBudget.minAvailable` of them running during node drains.
+
+**The storage pod is a single point of failure for file access.** While it restarts, the frontends keep serving the web UI, but file operations fail. After a node failure, Kubernetes must detach the `ReadWriteOnce` volume before the replacement pod starts, which can take several minutes.
+
+**Restarts briefly misroute requests.** Every OpenCloud pod caches the service registry for 30 seconds (hard-coded in OpenCloud 8.1). After a storage pod restarts with a new IP address, the other pods keep sending part of their requests to the old address until that cache expires, and those requests fail. This applies to updates and node drains as well, also with [several storage pods](#several-storage-pods-experimental): clients do not fail over to another storage pod by themselves. Registry entries of pods that stop without deregistering expire after `EXPERIMENTAL_REGISTER_TTL` (default 30s), settable through `extraEnv`.
+
+#### Several storage pods (experimental)
+
+`persistence.data.shared` switches the storage pods to one shared `ReadWriteMany` data volume: a single claim, `<fullname>-data` (or `persistence.data.existingClaim`), mounted by every storage pod instead of one claim per pod, and kept on uninstall. `storagePods.replicas` above 1 requires it:
+
+```yaml
+topology: split
+storagePods:
+  replicas: 2
+persistence:
+  data:
+    shared: true
+    accessMode: ReadWriteMany
+    storageClass: nfs-rwx
+```
+
+- **File system:** OpenCloud keeps its metadata in extended attributes and coordinates writers with `flock`. Use NFS 4.2 mounted with `noac`, or CephFS. NFS 4.1 and older have no extended attributes.
+- **Restarts:** while a storage pod restarts, requests routed to it fail for up to about 30 seconds after the new pod is ready (see the registry cache above); the data stays intact.
+- **search and ocm** hold state that only one process may own (the search index, the OCM invitation store), so they run on the first pod, `<fullname>-0`, only. While that pod restarts, search and OCM are unavailable; file access continues through the other pods.
+- **Not supported upstream:** OpenCloud's maintainers name shared `ReadWriteMany` storage as the prerequisite for several instances, but there is no published, tested configuration. `tests/e2e/shared/run.sh` checks this setup on NFS; run it against your storage before relying on it.
+- **Scaling:** the volume layout depends on `persistence.data.shared` only, not on the replica count, so `storagePods.replicas` changes in both directions with a plain `helm upgrade`, also between 1 and more. Set `shared` before installation, even with one pod, to keep that option. Switching an existing installation into or out of shared mode replaces its data claim: copy the data over, or point `persistence.data.existingClaim` at a `ReadWriteMany` claim holding it, and recreate the StatefulSet (`kubectl delete statefulset <fullname> --cascade=orphan`), because Kubernetes cannot change its volume claims in place.
+
+#### NATS
+
+In `split`, the pods share OpenCloud's service registry, events, caches and stores through an external NATS cluster. The chart does not deploy NATS. Run one with JetStream, for example with the [official NATS chart](https://github.com/nats-io/k8s/tree/main/helm/charts/nats), and note these OpenCloud 8.1 requirements:
+
+- **Memory storage:** the service registry keeps its data in JetStream memory storage. Without it, the pods fail with `insufficient resources`.
+- **No TLS for the registry:** the registry client has no TLS option, so the client port must accept plain connections. Restrict access with a NetworkPolicy.
+- **Health checks without credentials:** OpenCloud's readiness checks connect to NATS without the username and password. With authentication enabled, add a `no_auth_user` that may connect but neither publish nor subscribe, or the pods never become ready.
+- **Single copies:** OpenCloud creates its buckets and event stream with one replica. A NATS cluster spreads the load, but losing the node that holds them interrupts OpenCloud until that node returns.
+
+Values for the official NATS chart that meet these requirements:
+
+```yaml
+config:
+  cluster:
+    enabled: true
+    replicas: 3
+  jetstream:
+    enabled: true
+    fileStore:
+      pvc:
+        size: 10Gi
+    memoryStore:
+      enabled: true
+      maxSize: 256Mi
+  merge:
+    authorization:
+      users:
+        - user: opencloud
+          password: "<password from the opencloud-nats Secret>"
+        - user: healthcheck
+          password: "<random, unused>"
+          permissions:
+            publish: {deny: [">"]}
+            subscribe: {deny: [">"]}
+    no_auth_user: healthcheck
+```
+
+Then point the chart at it, with the `username` and `password` keys in `nats.existingSecret`:
+
+```yaml
+topology: split
+nats:
+  address: nats.nats.svc.cluster.local:4222
+  existingSecret: opencloud-nats
+```
+
+#### From single to split
+
+The StatefulSet keeps its name, selector and volume claims in both topologies, so an installation switches with `helm upgrade` and keeps its data volume:
+
+1. Move to `identity.mode: oidc` with an external LDAP and to [service secrets](#service-secrets), migrating the existing values with `scripts/service-secrets.py from-config`.
+2. Deploy NATS as described above.
+3. Upgrade with `topology: split` and `nats.address`.
+
+Events that the embedded NATS still holds at that moment are not carried over, for example the postprocessing of uploads in progress, so switch while the installation is idle. Switching back to `single` works the same way.
 
 ### Networking
 
@@ -249,21 +345,21 @@ These settings govern passwords, not whether public links may be created. The ch
 
 ### Monitoring
 
-Health probes use `/healthz` and `/readyz` on the proxy's debug port 9205, which is always bound. The web port answers every path with the web UI, so it cannot serve as a health check. Readiness reflects the proxy only; backend services may still be starting for a few seconds after the pod turns ready.
+Health probes use `/healthz` and `/readyz` on the proxy's debug port 9205, which is always bound. In `topology: split` the storage pod has no proxy and uses the user storage service's debug port 9159 instead. The web port answers every path with the web UI, so it cannot serve as a health check. Readiness reflects the proxy only; backend services may still be starting for a few seconds after the pod turns ready.
 
-`metrics.enabled` adds a `<fullname>-metrics` Service for `/metrics` on the same port, and `metrics.serviceMonitor.enabled` a ServiceMonitor (requires the Prometheus Operator CRDs). In single-process mode this endpoint covers all services. Set `metrics.token` to require a bearer token for `/metrics`; health endpoints stay open.
+`metrics.enabled` adds a `<fullname>-metrics` Service for `/metrics` on the same port, and `metrics.serviceMonitor.enabled` a ServiceMonitor (requires the Prometheus Operator CRDs). In `topology: single` this endpoint covers all services. In `split` it covers the frontend pods, and a second Service, `<fullname>-metrics-storage`, exposes the storage pods' `/metrics` on port 9159; the ServiceMonitor scrapes both. Set `metrics.token` to require a bearer token for `/metrics` (in `split` on both debug servers); health endpoints stay open.
 
 The ServiceMonitor and its authentication Secrets always live in the Helm release namespace. Configure Prometheus's `serviceMonitorNamespaceSelector` to discover that namespace and its `serviceMonitorSelector` to match the monitor's labels; Prometheus itself can stay in a separate monitoring namespace.
 
 ### Security
 
-All containers run as non-root with a read-only root filesystem, RuntimeDefault seccomp, no privilege escalation and all capabilities dropped. ServiceAccount token automounting is disabled; the chart grants no Kubernetes RBAC permissions. When Radicale is enabled, the chart installs an ingress NetworkPolicy allowing TCP port 5232 only from this release's OpenCloud server pods in the same namespace, because Radicale trusts their X-Remote-User header. This requires a network plugin that enforces NetworkPolicy; other policies must not grant broader access to Radicale, since allow rules are additive. Port 9205 also serves metrics and is reachable on the pod IP: restrict it and the other companions with your own NetworkPolicies.
+All containers run as non-root with a read-only root filesystem, RuntimeDefault seccomp, no privilege escalation and all capabilities dropped. ServiceAccount token automounting is disabled; the chart grants no Kubernetes RBAC permissions. When Radicale is enabled, the chart installs an ingress NetworkPolicy allowing TCP port 5232 only from the pods that run this release's OpenCloud proxy (the server pod, or the frontend pods in `topology: split`) in the same namespace, because Radicale trusts their X-Remote-User header. This requires a network plugin that enforces NetworkPolicy; other policies must not grant broader access to Radicale, since allow rules are additive. Port 9205 also serves metrics and is reachable on the pod IP, as are, in `topology: split`, the service ports the pods use to reach each other: restrict it and the other companions with your own NetworkPolicies.
 
 ## Operations
 
 - **Backups:** back up config and data volumes together, plus the S3 bucket when using `decomposeds3` and the Radicale volume when enabled. Stop services or use a consistent snapshot, and test restoration.
 - **Secrets:** restart the affected pods after changing an externally managed Secret used as environment variables. Keep internal service secrets and IDs stable.
-- **Persistence:** check PVC retention before uninstalling. Resource and claim names depend on the release name and `fullnameOverride`.
+- **Persistence:** check PVC retention before uninstalling. With `persistence.data.shared`, the data claim `<fullname>-data` is kept on uninstall (`helm.sh/resource-policy: keep`) and must be deleted by hand. Resource and claim names depend on the release name and `fullnameOverride`.
 - **Resources:** OpenCloud requests 250m CPU and 512Mi memory by default. Tune resources from measured load; the startup probe allows five minutes.
 - **GitOps:** the chart has no hooks. Install any required Gateway API or ServiceMonitor CRDs before applying its rendered resources.
 
@@ -289,6 +385,8 @@ CI also checks workflow syntax and the values schema. Optional local hooks are c
 
 `tests/e2e/run.sh` runs a separate suite on a throwaway kind cluster with Keycloak and OpenLDAP. It exercises token-based sign-in, roles, LDAP groups, file transfers, companions, persistent state and externally managed service secrets. It requires kind, kubectl, Helm, Docker and Python and is not run by CI. The harness unit tests above do not start a cluster.
 
+`tests/e2e/shared/run.sh` tests `topology: split` with two storage pods on one NFS volume, on a kind cluster with three nodes: NFS semantics across nodes (content, extended attributes, `flock`), then parallel uploads and renames through both storage pods, the replacement of each pod, and scaling the storage pods from two to one and back with `helm upgrade` on the same claim. It runs an NFS server in the cluster, which needs the `nfsd` kernel module on the host (`sudo modprobe nfsd`), or uses an external export with `NFS_SERVER=host:/path`. Kind needs a container engine that allows NFS mounts, such as rootful Docker; see the script header for its options.
+
 `policies/kyverno/` contains optional `ValidatingPolicy` resources for pod hardening, image digests and resource requests. The chart does not install them. They use `Deny` actions without a namespace restriction; scope them or select audit actions before applying them to a shared cluster.
 
 This README is generated from `README.md.gotmpl` and the `# --` comments in `values.yaml` by [helm-docs](https://github.com/norwoodj/helm-docs). Edit those sources and run `scripts/generate-docs.sh`. CI checks that the generated README is current.
@@ -297,7 +395,7 @@ This README is generated from `README.md.gotmpl` and the `# --` comments in `val
 
 Bitnami Common is vendored in `charts/`. Keep `Chart.yaml`, `Chart.lock` and the dependency archive in sync; `helm dependency build .` restores the locked dependency.
 
-Push a `vX.Y.Z` tag matching `version` in `Chart.yaml` to run CI, package the chart, publish it to `oci://ghcr.io/comexos/charts/opencloud` and sign its digest with cosign. Forks publish under their repository owner's GHCR namespace.
+Push a `vX.Y.Z` tag matching `version` in `Chart.yaml` to run CI, package the chart, publish it to `oci://ghcr.io/s7n-systems/charts/opencloud` and sign its digest with cosign. Forks publish under their repository owner's GHCR namespace.
 
 ## Values
 
@@ -324,6 +422,7 @@ Push a `vX.Y.Z` tag matching `version` in `Chart.yaml` to run CI, package the ch
 | archiverMaxSize | string | `"10000000000"` | Maximum size in bytes of a folder download archive (FRONTEND_ARCHIVER_MAX_SIZE). |
 | basicAuth | bool | `false` | Allows HTTP Basic authentication (PROXY_ENABLE_BASIC_AUTH), for WebDAV clients without OpenID Connect support. Not recommended. |
 | checkForUpdates | bool | `true` | Lets clients check for updates (FRONTEND_CHECK_FOR_UPDATES). |
+| clusterDomain | string | `"cluster.local"` | DNS domain of the Kubernetes cluster, for in-cluster service addresses the chart builds itself (topology split: the storage pod's data endpoints). |
 | collaboration.app.icon | string | `""` | Icon URL; defaults to <url>/favicon.ico. |
 | collaboration.app.insecure | bool | `false` | Skips TLS verification of the office server. |
 | collaboration.app.name | string | `"CollaboraOnline"` | Display name and app registry name (COLLABORATION_APP_NAME), e.g. CollaboraOnline or Euro-Office. |
@@ -353,6 +452,22 @@ Push a `vX.Y.Z` tag matching `version` in `Chart.yaml` to run CI, package the ch
 | extraSecretEnv | object | `{}` | Extra environment variables from the chart-managed Secret. |
 | extraVolumeMounts | list | `[]` |  |
 | extraVolumes | list | `[]` |  |
+| frontend.affinity | object | `{}` |  |
+| frontend.autoscaling.enabled | bool | `false` | Scales the frontend with a HorizontalPodAutoscaler on CPU use instead of frontend.replicas. Requires the metrics API, e.g. metrics-server. |
+| frontend.autoscaling.maxReplicas | int | `10` |  |
+| frontend.autoscaling.minReplicas | int | `2` |  |
+| frontend.autoscaling.scaleDownStabilizationWindowSeconds | int | `600` | Seconds the CPU use must stay below the target before pods are removed. |
+| frontend.autoscaling.targetCPUUtilizationPercentage | int | `80` | Average CPU use, in percent of frontend.resources.requests.cpu, above which pods are added. |
+| frontend.nodeSelector | object | `{}` |  |
+| frontend.podAnnotations | object | `{}` |  |
+| frontend.podDisruptionBudget.enabled | bool | `true` | Keeps minAvailable frontend pods running during voluntary disruptions such as node drains. Rendered only with more than one replica. |
+| frontend.podDisruptionBudget.minAvailable | int | `1` |  |
+| frontend.podLabels | object | `{}` |  |
+| frontend.replicas | int | `2` | Number of frontend pods while autoscaling is disabled. |
+| frontend.resources.requests.cpu | string | `"250m"` |  |
+| frontend.resources.requests.memory | string | `"512Mi"` |  |
+| frontend.tolerations | list | `[]` |  |
+| frontend.topologySpreadConstraints | list | `[]` |  |
 | fullnameOverride | string | `""` | Overrides the full resource name used by the chart. |
 | gatewayAPI.httpRoute.annotations | object | `{}` |  |
 | gatewayAPI.httpRoute.enabled | bool | `false` |  |
@@ -427,6 +542,10 @@ Push a `vX.Y.Z` tag matching `version` in `Chart.yaml` to run CI, package the ch
 | metrics.token.secretKey | string | `"token"` |  |
 | metrics.token.value | string | `""` | Fallback only, stored in a chart-managed Secret. Prefer existingSecret. |
 | nameOverride | string | `""` | Overrides the chart name used in resource names. |
+| nats.address | string | `""` | host:port of the NATS cluster, e.g. nats.nats.svc.cluster.local:4222. |
+| nats.existingSecret | string | `""` | Existing Secret with the NATS username and password; empty connects without credentials. |
+| nats.passwordSecretKey | string | `"password"` |  |
+| nats.usernameSecretKey | string | `"username"` |  |
 | nodeSelector | object | `{}` |  |
 | passwordPolicy.bannedPasswords | list | `[]` | Passwords rejected by the policy, one per entry. Rendered into banned-password-list.txt; empty disables the list. |
 | passwordPolicy.disabled | bool | `false` |  |
@@ -442,6 +561,7 @@ Push a `vX.Y.Z` tag matching `version` in `Chart.yaml` to run CI, package the ch
 | persistence.config.storageClass | string | `""` |  |
 | persistence.data.accessMode | string | `"ReadWriteOnce"` |  |
 | persistence.data.existingClaim | string | `""` | Use an existing claim instead of the StatefulSet volume claim template. |
+| persistence.data.shared | bool | `false` | topology split: mount one standalone claim (`<fullname>-data`, or existingClaim) in every storage pod instead of a claim per pod, with any storagePods.replicas. Requires accessMode ReadWriteMany. Set it before installation: storagePods.replicas can then change in both directions without touching the volume. See the README. |
 | persistence.data.size | string | `"50Gi"` |  |
 | persistence.data.storageClass | string | `""` |  |
 | persistence.enabled | bool | `true` |  |
@@ -534,6 +654,7 @@ Push a `vX.Y.Z` tag matching `version` in `Chart.yaml` to run CI, package the ch
 | storage.s3.region | string | `"default"` |  |
 | storage.s3.secretKey | string | `""` |  |
 | storage.s3.secretKeySecretKey | string | `"secretKey"` |  |
+| storagePods.replicas | int | `1` | Number of storage pods. EXPERIMENTAL above 1, which requires persistence.data.shared: the pods share one ReadWriteMany data volume on a file system with flock and extended attributes, e.g. NFS 4.2 mounted with noac, or CephFS. search and ocm keep state that only one process may hold and run on the first pod only. See the README. |
 | terminationGracePeriodSeconds | int | `60` | Seconds OpenCloud gets to shut down and flush NATS and the search index. |
 | tika.affinity | object | `{}` |  |
 | tika.containerSecurityContext.allowPrivilegeEscalation | bool | `false` |  |
@@ -562,6 +683,7 @@ Push a `vX.Y.Z` tag matching `version` in `Chart.yaml` to run CI, package the ch
 | tika.resources.requests.memory | string | `"512Mi"` |  |
 | tika.tolerations | list | `[]` |  |
 | tolerations | list | `[]` |  |
+| topology | string | `"single"` | single runs every OpenCloud service in one pod. split runs the services that keep state on the data volume (storage-users, storage-system, search, ocm) in the StatefulSet, which stays at one replica, and every other service in the scalable frontend Deployment. split requires identity.mode oidc with an external identity.ldap.uri, serviceSecrets.existingSecret and nats.address. Switching an installation from single to split keeps its data volume; see the README. |
 | topologySpreadConstraints | list | `[]` |  |
 | web.appsConfig | object | `{}` | Configuration of installed web extensions, rendered into apps.yaml. |
 | yjs.affinity | object | `{}` |  |

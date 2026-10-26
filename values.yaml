@@ -281,7 +281,8 @@ web:
   # -- Configuration of installed web extensions, rendered into apps.yaml.
   appsConfig: {}
 
-# Exposes the proxy's debug endpoint (/metrics on port 9205) to Prometheus.
+# Exposes the proxy's debug endpoint (/metrics on port 9205) to Prometheus, in
+# topology split also the storage pod's (port 9159).
 # The endpoint serves health probes regardless of this setting.
 metrics:
   enabled: false
@@ -314,6 +315,76 @@ serviceSecrets:
   # thumbnailsTransferToken and storageUsersMountId.
   existingSecret: ""
 
+# -- DNS domain of the Kubernetes cluster, for in-cluster service addresses
+# the chart builds itself (topology split: the storage pod's data endpoints).
+clusterDomain: "cluster.local"
+
+# -- single runs every OpenCloud service in one pod. split runs the services
+# that keep state on the data volume (storage-users, storage-system, search,
+# ocm) in the StatefulSet, which stays at one replica, and every other service
+# in the scalable frontend Deployment. split requires identity.mode oidc with
+# an external identity.ldap.uri, serviceSecrets.existingSecret and
+# nats.address. Switching an installation from single to split keeps its data
+# volume; see the README.
+topology: "single"
+
+# The stateless OpenCloud services of topology split: proxy, web UI, gateway,
+# Graph, WebDAV, sharing, thumbnails, postprocessing and the rest. The
+# StatefulSet keeps the top-level resources and scheduling settings; the
+# frontend's podLabels and podAnnotations are merged over the top-level ones.
+frontend:
+  # -- Number of frontend pods while autoscaling is disabled.
+  replicas: 2
+  autoscaling:
+    # -- Scales the frontend with a HorizontalPodAutoscaler on CPU use instead
+    # of frontend.replicas. Requires the metrics API, e.g. metrics-server.
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    # -- Average CPU use, in percent of frontend.resources.requests.cpu, above which pods are added.
+    targetCPUUtilizationPercentage: 80
+    # -- Seconds the CPU use must stay below the target before pods are removed.
+    scaleDownStabilizationWindowSeconds: 600
+  podDisruptionBudget:
+    # -- Keeps minAvailable frontend pods running during voluntary disruptions
+    # such as node drains. Rendered only with more than one replica.
+    enabled: true
+    minAvailable: 1
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+  podLabels: {}
+  podAnnotations: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+
+# The storage pods of topology split: the StatefulSet that runs storage-users,
+# storage-system, search and ocm on the data volume.
+storagePods:
+  # -- Number of storage pods. EXPERIMENTAL above 1, which requires
+  # persistence.data.shared: the pods share one ReadWriteMany data volume on a
+  # file system with flock and extended attributes, e.g. NFS 4.2 mounted with
+  # noac, or CephFS. search and ocm keep state that only one process may hold
+  # and run on the first pod only. See the README.
+  replicas: 1
+
+# External NATS cluster for topology split, which holds the service registry,
+# events, caches and stores shared by the pods. It needs JetStream with file
+# and memory storage. OpenCloud 8.1 connects to the registry without TLS, and
+# its health checks connect without credentials: with authentication, also
+# allow such connections (e.g. a no_auth_user without permissions). See the
+# README for NATS chart values.
+nats:
+  # -- host:port of the NATS cluster, e.g. nats.nats.svc.cluster.local:4222.
+  address: ""
+  # -- Existing Secret with the NATS username and password; empty connects without credentials.
+  existingSecret: ""
+  usernameSecretKey: "username"
+  passwordSecretKey: "password"
+
 # OpenCloud keeps its configuration and generated secrets in /etc/opencloud
 # and all state (idm, NATS, search index, metadata and, unless S3 is used,
 # files) in /var/lib/opencloud. Disabling persistence loses everything on
@@ -333,6 +404,12 @@ persistence:
   data:
     # -- Use an existing claim instead of the StatefulSet volume claim template.
     existingClaim: ""
+    # -- topology split: mount one standalone claim (`<fullname>-data`, or
+    # existingClaim) in every storage pod instead of a claim per pod, with any
+    # storagePods.replicas. Requires accessMode ReadWriteMany. Set it before
+    # installation: storagePods.replicas can then change in both directions
+    # without touching the volume. See the README.
+    shared: false
     accessMode: "ReadWriteOnce"
     storageClass: ""
     size: "50Gi"

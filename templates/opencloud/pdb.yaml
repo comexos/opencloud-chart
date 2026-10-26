@@ -1,0 +1,20 @@
+{{- /* With a single frontend pod, a PodDisruptionBudget would block node drains. */}}
+{{- if and (eq (include "opencloud.split" .) "true") .Values.frontend.podDisruptionBudget.enabled (gt (int (include "opencloud.frontendMinReplicas" .)) 1) }}
+{{- $ctx := dict "component" "frontend" "context" . }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "opencloud.componentFullname" $ctx }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "opencloud.componentLabels" $ctx | nindent 4 }}
+  {{- with .Values.additionalAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  minAvailable: {{ .Values.frontend.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "opencloud.componentSelectorLabels" $ctx | nindent 6 }}
+{{- end }}

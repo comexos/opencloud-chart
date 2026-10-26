@@ -9,12 +9,31 @@ metadata:
     {{- include "opencloud.annotations" (dict "specific" dict "context" .) | nindent 4 }}
 spec:
   clusterIP: None
+  {{- if eq (include "opencloud.split" .) "true" }}
+  # The storage pod becomes ready only after reaching the frontend's gateway,
+  # while the frontend needs the storage pod from its first start: resolve
+  # the name as soon as the pod has an address.
+  publishNotReadyAddresses: true
+  {{- end }}
   selector:
     {{- include "opencloud.selectorLabels" . | nindent 4 }}
   ports:
+    {{- if eq (include "opencloud.split" .) "true" }}
+    # Data transfers of the storage services, used by the frontend pods.
+    - name: users-data
+      port: 9158
+      targetPort: users-data
+    - name: system-data
+      port: 9216
+      targetPort: system-data
+    - name: ocm-data
+      port: 9280
+      targetPort: ocm-data
+    {{- else }}
     - name: http
       port: 9200
       targetPort: http
+    {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -35,7 +54,7 @@ spec:
     {{- toYaml . | nindent 4 }}
   {{- end }}
   selector:
-    {{- include "opencloud.selectorLabels" . | nindent 4 }}
+    {{- include "opencloud.proxySelectorLabels" . | nindent 4 }}
   ports:
     - name: http
       port: {{ .Values.service.port }}
@@ -54,9 +73,31 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    {{- include "opencloud.selectorLabels" . | nindent 4 }}
+    {{- include "opencloud.proxySelectorLabels" . | nindent 4 }}
   ports:
     - name: debug
       port: {{ include "opencloud.debugPort" . }}
       targetPort: debug
+{{- if eq (include "opencloud.split" .) "true" }}
+---
+# topology split: the storage pod's metrics. Same labels as the frontend's
+# metrics Service, so the ServiceMonitor scrapes both.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "opencloud.fullname" . }}-metrics-storage
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "opencloud.componentLabels" (dict "component" "metrics" "context" .) | nindent 4 }}
+  annotations:
+    {{- include "opencloud.annotations" (dict "specific" dict "context" .) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "opencloud.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: debug
+      port: {{ include "opencloud.roleDebugPort" (dict "role" "storage" "context" .) }}
+      targetPort: debug
+{{- end }}
 {{- end }}
