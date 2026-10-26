@@ -395,7 +395,7 @@ This README is generated from `README.md.gotmpl` and the `# --` comments in `val
 
 Bitnami Common is vendored in `charts/`. Keep `Chart.yaml`, `Chart.lock` and the dependency archive in sync; `helm dependency build .` restores the locked dependency.
 
-Push a `vX.Y.Z` tag matching `version` in `Chart.yaml` to run CI, package the chart, publish it to `oci://ghcr.io/s7n-systems/charts/opencloud` and sign its digest with cosign. Forks publish under their repository owner's GHCR namespace.
+Push a `vX.Y.Z` tag matching `version` in `Chart.yaml` to run CI, package the chart, publish it to `oci://ghcr.io/s7n-systems/charts/opencloud`, sign its digest with cosign and create a GitHub release with the packaged chart and generated notes. Forks publish under their repository owner's GHCR namespace.
 
 ## Values
 
