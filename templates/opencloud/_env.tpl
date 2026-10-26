@@ -35,6 +35,14 @@
   valueFrom:
     secretKeyRef:
       {{- include "opencloud.secretRef" (dict "existingSecret" .Values.metrics.token.existingSecret "existingKey" .Values.metrics.token.secretKey "managedKey" "metricsToken" "context" .) | nindent 18 }}
+{{- if eq (include "opencloud.split" .) "true" }}
+# topology split: the storage pod has no proxy; its /metrics is served by the
+# user storage's debug server (port 9159).
+- name: STORAGE_USERS_DEBUG_TOKEN
+  valueFrom:
+    secretKeyRef:
+      {{- include "opencloud.secretRef" (dict "existingSecret" .Values.metrics.token.existingSecret "existingKey" .Values.metrics.token.secretKey "managedKey" "metricsToken" "context" .) | nindent 18 }}
+{{- end }}
 {{- end }}
 - name: PROXY_ENABLE_BASIC_AUTH
   value: {{ .Values.basicAuth | quote }}

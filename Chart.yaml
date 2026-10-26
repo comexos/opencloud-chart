@@ -3,7 +3,7 @@ apiVersion: "v2"
 name: "opencloud"
 description: "Helm chart for OpenCloud, the file sync and share platform"
 type: "application"
-version: "0.1.0"
+version: "0.2.0"
 # Kept in step with image.tag in values.yaml.
 # renovate: image=docker.io/opencloudeu/opencloud-rolling
 appVersion: "8.1.0"

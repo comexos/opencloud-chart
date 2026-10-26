@@ -1,0 +1,46 @@
+---
+# In-cluster NFS server (kernel nfsd in a privileged pod, the example server of
+# csi-driver-nfs). Requires the nfsd module on the host. NFSv4 only; the export
+# root is "/". Replaced by NFS_SERVER=host:/path for an external server.
+# The image is unmaintained (last release 2019) but serves this test as is.
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata:
+  name: "nfs-server"
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: "nfs-server"}
+  template:
+    metadata:
+      labels: {app: "nfs-server"}
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - {key: "node-role.kubernetes.io/control-plane", operator: "Exists", effect: "NoSchedule"}
+      containers:
+        - name: "nfs-server"
+          image: "docker.io/itsthenetwork/nfs-server-alpine:12@sha256:7fa99ae65c23c5af87dd4300e543a86b119ed15ba61422444207efc7abd0ba20"
+          env:
+            - {name: "SHARED_DIRECTORY", value: "/exports"}
+          ports:
+            - {name: "nfs", containerPort: 2049}
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - {name: "exports", mountPath: "/exports"}
+      volumes:
+        - name: "exports"
+          emptyDir: {}
+...
+---
+apiVersion: "v1"
+kind: "Service"
+metadata:
+  name: "nfs-server"
+spec:
+  selector: {app: "nfs-server"}
+  ports:
+    - {name: "nfs", port: 2049, protocol: "TCP"}
+...

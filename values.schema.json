@@ -634,6 +634,123 @@
         }
       }
     },
+    "clusterDomain": {
+      "type": "string",
+      "minLength": 1
+    },
+    "topology": {
+      "enum": [
+        "single",
+        "split"
+      ]
+    },
+    "storagePods": {
+      "type": "object",
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "frontend": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "targetCPUUtilizationPercentage": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "scaleDownStabilizationWindowSeconds": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "podDisruptionBudget": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minAvailable": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+%$"
+                }
+              ]
+            }
+          }
+        },
+        "resources": {
+          "type": "object"
+        },
+        "podLabels": {
+          "type": "object"
+        },
+        "podAnnotations": {
+          "type": "object"
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "affinity": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "topologySpreadConstraints": {
+          "type": "array"
+        }
+      }
+    },
+    "nats": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "type": "string",
+          "pattern": "^([^\\s,:/]+:[0-9]+)?$"
+        },
+        "existingSecret": {
+          "type": "string"
+        },
+        "usernameSecretKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passwordSecretKey": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "persistence": {
       "type": "object",
       "additionalProperties": false,
@@ -689,6 +806,9 @@
             "size": {
               "type": "string",
               "pattern": "^[0-9]+(\\.[0-9]+)?([KMGTPE]i?)?$"
+            },
+            "shared": {
+              "type": "boolean"
             }
           }
         }

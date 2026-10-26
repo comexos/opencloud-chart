@@ -1,0 +1,28 @@
+{{- if eq (include "opencloud.split" .) "true" }}
+{{- $ctx := dict "component" "frontend" "context" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opencloud.componentFullname" $ctx }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "opencloud.componentLabels" $ctx | nindent 4 }}
+  {{- with .Values.additionalAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.frontend.autoscaling.enabled }}
+  replicas: {{ .Values.frontend.replicas }}
+  {{- end }}
+  # Start a new pod before an old one stops, so a rollout never lowers capacity.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "opencloud.componentSelectorLabels" $ctx | nindent 6 }}
+  {{- include "opencloud.podTemplate" (dict "context" . "role" "frontend") }}
+{{- end }}

@@ -18,6 +18,8 @@ declare -A matrix=(
   [full]="-f $chart/ci/full.yaml"
   [builtin]="-f $chart/ci/builtin.yaml"
   [external-secrets]="-f $chart/ci/external-secrets.yaml"
+  [split]="-f $chart/ci/split.yaml"
+  [split-shared]="-f $chart/ci/split.yaml -f $chart/ci/split-shared.yaml"
 )
 for name in "${!matrix[@]}"; do
   # shellcheck disable=SC2086  # word splitting of the -f argument is intended

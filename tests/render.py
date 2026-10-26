@@ -469,6 +469,228 @@ class ChartChecks(unittest.TestCase):
             with self.subTest(values=values):
                 self.assertIn('serviceSecrets', render(values, succeeds=False, raw_defaults=True))
 
+    SPLIT = {'topology': 'split', 'nats': {'address': 'nats.nats:4222', 'existingSecret': 'nats'}}
+
+    def split(self, extra=None):
+        return self.external({**self.SPLIT, **(extra or {})})
+
+    def test_split_layout(self):
+        docs = self.split({'smtp': {'enabled': True, 'host': 'smtp', 'sender': 'a@b'}, 'extraEnv': {'OC_LOG_LEVEL': 'debug'}})
+        storage, frontend = workload(docs), find(docs, 'Deployment', 'opencloud-frontend')
+        roles = {}
+        for name, w in (('storage', storage), ('frontend', frontend)):
+            c = w['spec']['template']['spec']['containers'][0]
+            roles[name] = ({e['name']: e for e in c['env']}, c, w['spec']['template']['spec'])
+        storage_env, storage_c, storage_pod = roles['storage']
+        frontend_env, frontend_c, frontend_pod = roles['frontend']
+        # The storage pod runs only the services with state on the data volume; the frontend everything else.
+        self.assertEqual(storage_env['OC_RUN_SERVICES']['value'], 'storage-users,storage-system,search,ocm')
+        self.assertNotIn('OC_EXCLUDE_RUN_SERVICES', storage_env)
+        self.assertEqual(set(frontend_env['OC_EXCLUDE_RUN_SERVICES']['value'].split(',')),
+                         {'idp', 'idm', 'nats', 'storage-users', 'storage-system', 'search', 'ocm'})
+        self.assertEqual(frontend_env['OC_ADD_RUN_SERVICES']['value'], 'notifications')
+        self.assertNotIn('OC_RUN_SERVICES', frontend_env)
+        for variables in (storage_env, frontend_env):
+            self.assertEqual(variables['MICRO_REGISTRY']['value'], 'nats-js-kv')
+            for name in ('MICRO_REGISTRY_ADDRESS', 'OC_EVENTS_ENDPOINT', 'OC_CACHE_STORE_NODES', 'OC_PERSISTENT_STORE_NODES'):
+                self.assertEqual(variables[name]['value'], 'nats.nats:4222', name)
+            for prefix in ('MICRO_REGISTRY_AUTH', 'OC_EVENTS_AUTH', 'OC_CACHE_AUTH', 'OC_PERSISTENT_STORE_AUTH'):
+                self.assertEqual(variables[prefix + '_PASSWORD']['valueFrom']['secretKeyRef'], {'name': 'nats', 'key': 'password'})
+            # Every service listens on the pod IP; the gateway's bind and client addresses are set separately.
+            self.assertEqual(variables['GATEWAY_GRPC_ADDR']['value'], '0.0.0.0:9142')
+            self.assertEqual(variables['STORAGE_USERS_GRPC_ADDR']['value'], '0.0.0.0:9157')
+            self.assertNotIn('OC_GATEWAY_GRPC_ADDR', variables)
+            self.assertEqual(variables['STORAGE_USERS_GATEWAY_GRPC_ADDR']['value'], 'eu.opencloud.api.gateway')
+            self.assertEqual(variables['STORAGE_USERS_DATA_SERVER_URL']['value'], 'http://opencloud-headless.cloud.svc.cluster.local:9158/data')
+            # Thumbnails are downloaded from the pod that rendered them; $(POD_IP) only expands if defined earlier.
+            names = list(variables)
+            self.assertEqual(variables['POD_IP']['valueFrom'], {'fieldRef': {'fieldPath': 'status.podIP'}})
+            self.assertEqual(variables['THUMBNAILS_DATA_ENDPOINT']['value'], 'http://$(POD_IP):9186/thumbnails/data')
+            self.assertLess(names.index('POD_IP'), names.index('THUMBNAILS_DATA_ENDPOINT'))
+            self.assertEqual(variables['OC_LOG_LEVEL']['value'], 'debug')
+            self.assertEqual(variables['OC_JWT_SECRET']['valueFrom']['secretKeyRef']['name'], 'service')
+        # Probes use each role's debug port: the user storage's, or the proxy's.
+        self.assertEqual({p['name']: p['containerPort'] for p in storage_c['ports']}, {'users-data': 9158, 'system-data': 9216, 'ocm-data': 9280, 'debug': 9159})
+        self.assertEqual(storage_env['STORAGE_USERS_DEBUG_ADDR']['value'], '0.0.0.0:9159')
+        self.assertEqual({p['name']: p['containerPort'] for p in frontend_c['ports']}, {'http': 9200, 'debug': 9205})
+        # Only the storage pod has the data volume; the frontend keeps caches in emptyDirs.
+        self.assertEqual([t['metadata']['name'] for t in storage['spec']['volumeClaimTemplates']], ['config', 'data'])
+        self.assertTrue(all('persistentVolumeClaim' not in v for v in frontend_pod['volumes']))
+        self.assertIn({'name': 'data', 'emptyDir': {}}, frontend_pod['volumes'])
+        self.assertEqual(storage['spec']['replicas'], 1)
+        self.assertEqual(frontend['spec']['template']['metadata']['labels']['app.kubernetes.io/component'], 'frontend')
+        # The roles need each other at startup (the storage services connect to the gateway), so
+        # neither waits for the other; the storage pod's DNS name exists before it is ready.
+        self.assertNotIn('initContainers', storage_pod)
+        self.assertNotIn('initContainers', frontend_pod)
+        self.assertTrue(find(docs, 'Service', 'opencloud-headless')['spec']['publishNotReadyAddresses'])
+        # Traffic, metrics and the companions' policy follow the proxy into the frontend.
+        selector = lambda name: find(docs, 'Service', name)['spec']['selector']['app.kubernetes.io/component']
+        self.assertEqual((selector('opencloud'), selector('opencloud-headless')), ('frontend', 'server'))
+        self.assertEqual([p['port'] for p in find(docs, 'Service', 'opencloud-headless')['spec']['ports']], [9158, 9216, 9280])
+        docs = self.split({'radicale': {'enabled': True}, 'metrics': {'enabled': True}})
+        self.assertEqual(find(docs, 'Service', 'opencloud-metrics')['spec']['selector']['app.kubernetes.io/component'], 'frontend')
+        peer = find(docs, 'NetworkPolicy')['spec']['ingress'][0]['from'][0]['podSelector']['matchLabels']
+        self.assertEqual(peer['app.kubernetes.io/component'], 'frontend')
+        # Without credentials NATS is reached anonymously.
+        variables = {e['name'] for e in container(self.split({'nats': {'address': 'nats:4222'}}))['env']}
+        self.assertFalse(any(name.endswith(('_AUTH_USERNAME', '_AUTH_PASSWORD')) for name in variables))
+
+    def test_split_cluster_domain(self):
+        # The storage pod's data endpoints follow the cluster's DNS domain.
+        variables = {e['name']: e.get('value') for e in container(self.split({'clusterDomain': 'k8s.example'}))['env']}
+        frontend = find(self.split({'clusterDomain': 'k8s.example'}), 'Deployment', 'opencloud-frontend')
+        frontend_env = {e['name']: e.get('value') for e in frontend['spec']['template']['spec']['containers'][0]['env']}
+        for env_vars in (variables, frontend_env):
+            self.assertEqual(env_vars['STORAGE_USERS_DATA_SERVER_URL'], 'http://opencloud-headless.cloud.svc.k8s.example:9158/data')
+            self.assertEqual(env_vars['STORAGE_SYSTEM_DATA_SERVER_URL'], 'http://opencloud-headless.cloud.svc.k8s.example:9216/data')
+            self.assertEqual(env_vars['OCM_OCM_STORAGE_DATA_SERVER_URL'], 'http://opencloud-headless.cloud.svc.k8s.example:9280/data')
+
+    def test_split_metrics_cover_the_storage_pod(self):
+        metrics = {'metrics': {'enabled': True, 'serviceMonitor': {'enabled': True}, 'token': {'value': 'secret'}}}
+        docs = self.split(metrics)
+        services = {d['metadata']['name']: d for d in docs if d['kind'] == 'Service' and 'metrics' in d['metadata']['name']}
+        self.assertEqual(set(services), {'opencloud-metrics', 'opencloud-metrics-storage'})
+        storage = services['opencloud-metrics-storage']
+        self.assertEqual(storage['spec']['selector']['app.kubernetes.io/component'], 'server')
+        self.assertEqual(storage['spec']['ports'], [{'name': 'debug', 'port': 9159, 'targetPort': 'debug'}])
+        # The ServiceMonitor selects both Services by their shared component label.
+        selector = find(docs, 'ServiceMonitor')['spec']['selector']['matchLabels']
+        for service in services.values():
+            self.assertTrue(all(service['metadata']['labels'].get(k) == v for k, v in selector.items()))
+        # The storage pod's debug server protects /metrics with the same token as the proxy.
+        storage_env = {e['name']: e for e in container(docs)['env']}
+        self.assertEqual(storage_env['STORAGE_USERS_DEBUG_TOKEN']['valueFrom'], storage_env['PROXY_DEBUG_TOKEN']['valueFrom'])
+        # Topology single exposes only the proxy's debug port.
+        single = render(metrics)
+        self.assertEqual([d['metadata']['name'] for d in single if d['kind'] == 'Service' and 'metrics' in d['metadata']['name']],
+                         ['opencloud-metrics'])
+        self.assertNotIn('STORAGE_USERS_DEBUG_TOKEN', env(single))
+
+    SHARED = {'storagePods': {'replicas': 2}, 'persistence': {'data': {'shared': True, 'accessMode': 'ReadWriteMany', 'storageClass': 'nfs'}}}
+
+    def test_split_shared_storage(self):
+        docs = self.split(self.SHARED)
+        storage, frontend = workload(docs), find(docs, 'Deployment', 'opencloud-frontend')
+        self.assertEqual(storage['spec']['replicas'], 2)
+        # One shared claim instead of a claim per pod, kept on uninstall.
+        self.assertNotIn('data', [t['metadata']['name'] for t in storage['spec'].get('volumeClaimTemplates', [])])
+        claim = find(docs, 'PersistentVolumeClaim', 'opencloud-data')
+        self.assertEqual(claim['spec']['accessModes'], ['ReadWriteMany'])
+        self.assertEqual(claim['spec']['storageClassName'], 'nfs')
+        self.assertEqual(claim['metadata']['annotations']['helm.sh/resource-policy'], 'keep')
+        volumes = {v['name']: v for v in storage['spec']['template']['spec']['volumes']}
+        self.assertEqual(volumes['data'], {'name': 'data', 'persistentVolumeClaim': {'claimName': 'opencloud-data'}})
+        # search and ocm run on the first pod only; the wrapper adds them there.
+        c = storage['spec']['template']['spec']['containers'][0]
+        variables = {e['name']: e.get('value') for e in c['env']}
+        self.assertEqual(variables['OC_RUN_SERVICES'], 'storage-users,storage-system')
+        self.assertEqual(variables['OC_SINGLETON_SERVICES'], 'search,ocm')
+        self.assertNotIn('args', c)
+        self.assertEqual(c['command'][:2], ['/bin/sh', '-ec'])
+        self.assertIn('${HOSTNAME##*-}', c['command'][2])
+        self.assertIn('exec opencloud server', c['command'][2])
+        # The OCM data endpoint names the first pod; the storages stay load-balanced.
+        frontend_env = {e['name']: e.get('value') for e in frontend['spec']['template']['spec']['containers'][0]['env']}
+        for env_vars in (variables, frontend_env):
+            self.assertEqual(env_vars['OCM_OCM_STORAGE_DATA_SERVER_URL'], 'http://opencloud-0.opencloud-headless.cloud.svc.cluster.local:9280/data')
+            self.assertEqual(env_vars['STORAGE_USERS_DATA_SERVER_URL'], 'http://opencloud-headless.cloud.svc.cluster.local:9158/data')
+        # An existing RWX claim is used as is, without a chart-managed one.
+        docs = self.split({**self.SHARED, 'persistence': {'data': {'shared': True, 'accessMode': 'ReadWriteMany', 'existingClaim': 'nas'}}})
+        self.assertFalse([d for d in docs if d['kind'] == 'PersistentVolumeClaim'])
+        volumes = {v['name']: v for v in workload(docs)['spec']['template']['spec']['volumes']}
+        self.assertEqual(volumes['data']['persistentVolumeClaim']['claimName'], 'nas')
+        # Excluded singletons are not started at all.
+        variables = {e['name']: e.get('value') for e in container(self.split({**self.SHARED, 'excludeServices': ['search']}))['env']}
+        self.assertEqual(variables['OC_SINGLETON_SERVICES'], 'ocm')
+
+    def test_split_single_storage_pod_unchanged(self):
+        docs = self.split()
+        c = container(docs)
+        self.assertEqual(c['args'], ['server'])
+        self.assertNotIn('command', c)
+        self.assertNotIn('OC_SINGLETON_SERVICES', {e['name'] for e in c['env']})
+        self.assertFalse([d for d in docs if d['kind'] == 'PersistentVolumeClaim'])
+
+    def test_shared_storage_scales_without_layout_change(self):
+        # In shared mode the replica count is the only difference, so a plain
+        # helm upgrade scales the storage pods in both directions.
+        workloads = {}
+        for replicas in (1, 2, 3):
+            values = {**self.SHARED, 'storagePods': {'replicas': replicas}}
+            docs = self.split(values)
+            spec = workload(docs)['spec']
+            self.assertEqual(spec['replicas'], replicas)
+            self.assertNotIn('data', [t['metadata']['name'] for t in spec.get('volumeClaimTemplates', [])])
+            self.assertEqual(find(docs, 'PersistentVolumeClaim', 'opencloud-data')['spec']['accessModes'], ['ReadWriteMany'])
+            workloads[replicas] = {k: v for k, v in spec.items() if k != 'replicas'}
+        self.assertEqual(workloads[1], workloads[2])
+        self.assertEqual(workloads[2], workloads[3])
+        # With one pod in shared mode, search and ocm still start there.
+        variables = {e['name']: e.get('value') for e in container(self.split({**self.SHARED, 'storagePods': {'replicas': 1}}))['env']}
+        self.assertEqual(variables['OC_SINGLETON_SERVICES'], 'search,ocm')
+
+    def test_shared_storage_rejected_combinations(self):
+        rwx = {'persistence': {'data': {'accessMode': 'ReadWriteMany'}}}
+        for values, message in [
+            ({'domain': 'example.org', **self.EXTERNAL, **self.SPLIT, **rwx, 'storagePods': {'replicas': 2}}, 'requires persistence.data.shared'),
+            ({'domain': 'example.org', **self.EXTERNAL, **self.SPLIT, 'persistence': {'data': {'shared': True}}}, 'accessMode ReadWriteMany'),
+            ({'domain': 'example.org', **self.EXTERNAL, 'storagePods': {'replicas': 2}}, 'requires topology split'),
+            ({'domain': 'example.org', **self.EXTERNAL, 'persistence': {'data': {'shared': True, 'accessMode': 'ReadWriteMany'}}}, 'requires topology split'),
+        ]:
+            with self.subTest(message=message):
+                self.assertIn(message, render(values, succeeds=False, raw_defaults=True))
+        render({'storagePods': {'replicas': 0}}, succeeds=False)
+
+    def test_split_excluded_services(self):
+        docs = self.split({'excludeServices': ['search']})
+        self.assertEqual(env(docs)['OC_RUN_SERVICES']['value'], 'storage-users,storage-system,ocm')
+        frontend = find(docs, 'Deployment', 'opencloud-frontend')['spec']['template']['spec']['containers'][0]
+        self.assertIn('search', {e['name']: e['value'] for e in frontend['env'] if 'value' in e}['OC_EXCLUDE_RUN_SERVICES'].split(','))
+
+    def test_split_frontend_scaling(self):
+        docs = self.split()
+        self.assertEqual(find(docs, 'Deployment', 'opencloud-frontend')['spec']['replicas'], 2)
+        self.assertEqual(find(docs, 'PodDisruptionBudget')['spec']['minAvailable'], 1)
+        self.assertFalse([d for d in docs if d['kind'] == 'HorizontalPodAutoscaler'])
+        # A budget for a single pod would block node drains.
+        self.assertFalse([d for d in self.split({'frontend': {'replicas': 1}}) if d['kind'] == 'PodDisruptionBudget'])
+        docs = self.split({'frontend': {'autoscaling': {'enabled': True, 'minReplicas': 3, 'maxReplicas': 9, 'targetCPUUtilizationPercentage': 70}}})
+        self.assertNotIn('replicas', find(docs, 'Deployment', 'opencloud-frontend')['spec'])
+        hpa = find(docs, 'HorizontalPodAutoscaler')['spec']
+        self.assertEqual((hpa['minReplicas'], hpa['maxReplicas'], hpa['scaleTargetRef']['name']), (3, 9, 'opencloud-frontend'))
+        self.assertEqual(hpa['metrics'][0]['resource']['target']['averageUtilization'], 70)
+        self.assertFalse([d for d in self.split({'frontend': {'autoscaling': {'enabled': True, 'minReplicas': 1}}}) if d['kind'] == 'PodDisruptionBudget'])
+
+    def test_split_frontend_pod_settings(self):
+        docs = self.split({'podLabels': {'team': 'a', 'tier': 'x'}, 'nodeSelector': {'disk': 'ssd'},
+                           'frontend': {'podLabels': {'tier': 'web'}, 'tolerations': [{'key': 'web', 'operator': 'Exists'}],
+                                        'resources': {'requests': {'cpu': '1', 'memory': '1Gi'}}}})
+        pod = find(docs, 'Deployment', 'opencloud-frontend')['spec']['template']
+        self.assertEqual((pod['metadata']['labels']['team'], pod['metadata']['labels']['tier']), ('a', 'web'))
+        self.assertNotIn('nodeSelector', pod['spec'])
+        self.assertEqual(pod['spec']['tolerations'], [{'key': 'web', 'operator': 'Exists'}])
+        self.assertEqual(pod['spec']['containers'][0]['resources'], {'requests': {'cpu': '1', 'memory': '1Gi'}})
+        storage = workload(docs)['spec']['template']['spec']
+        self.assertEqual(storage['nodeSelector'], {'disk': 'ssd'})
+        self.assertNotIn('tolerations', storage)
+
+    def test_split_rejected_combinations(self):
+        for values, message in [
+            ({'domain': 'example.org', 'admin': {'existingSecret': 'a'}, **self.SPLIT}, 'identity.mode oidc'),
+            ({'domain': 'example.org', **self.EXTERNAL, 'serviceSecrets': {'existingSecret': ''}, **self.SPLIT}, 'serviceSecrets.existingSecret'),
+            ({'domain': 'example.org', **self.EXTERNAL, 'topology': 'split'}, 'nats.address'),
+            ({'domain': 'example.org', **self.EXTERNAL, **self.SPLIT, 'persistence': {'enabled': False}}, 'persistence.enabled'),
+            ({'domain': 'example.org', **self.EXTERNAL, **self.SPLIT, 'frontend': {'autoscaling': {'enabled': True, 'minReplicas': 5, 'maxReplicas': 3}}}, 'minReplicas'),
+            ({'domain': 'example.org', **self.EXTERNAL, **self.SPLIT, 'frontend': {'autoscaling': {'enabled': True}, 'resources': {'requests': {'cpu': None, 'memory': '1Gi'}}}}, 'requests.cpu'),
+            ({'domain': 'example.org', **self.EXTERNAL, 'nats': {'address': 'nats:4222'}}, 'topology single'),
+        ]:
+            with self.subTest(message=message):
+                self.assertIn(message, render(values, succeeds=False, raw_defaults=True))
+        for invalid in [{'topology': 'cluster'}, {'nats': {'address': 'nats://nats:4222'}}, {'frontend': {'replicas': 0}}]:
+            with self.subTest(values=invalid):
+                render(invalid, succeeds=False)
+
     def test_oidc_role_mapping(self):
         mapping = [{'role_name': 'admin', 'claim_value': 'oc-admins'}, {'role_name': 'user', 'claim_value': 'oc-users'}]
         docs = render({'yjs': {'enabled': False}, 'identity': {'mode': 'oidc', 'oidc': {'issuer': 'https://i/r', 'roleAssignment': {'mapping': mapping}}}})

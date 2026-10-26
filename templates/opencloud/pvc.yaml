@@ -1,0 +1,24 @@
+{{- /* Shared data volume of several storage pods (storagePods.replicas above
+       1), instead of a claim per pod from the StatefulSet. Kept on uninstall,
+       like the StatefulSet claims, so the files are not lost with the release. */}}
+{{- if and (eq (include "opencloud.sharedData" .) "true") .Values.persistence.enabled (not .Values.persistence.data.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "opencloud.dataClaimName" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "opencloud.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+    {{- with .Values.additionalAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.data.accessMode | quote }}
+  {{- include "common.storage.class" (dict "persistence" .Values.persistence.data "global" .Values.global) | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.data.size | quote }}
+{{- end }}

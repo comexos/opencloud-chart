@@ -1,0 +1,111 @@
+---
+# Two pods on different workers share one NFS volume: the first writes a file,
+# sets an extended attribute and holds an exclusive flock; the second must see
+# the content and the attribute and must not get the lock. OpenCloud relies on
+# exactly these (decomposedfs metadata in xattrs, flock-based locking).
+apiVersion: "v1"
+kind: "PersistentVolumeClaim"
+metadata:
+  name: "nfs-check"
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: "nfs-rwx"
+  resources:
+    requests: {storage: "1Gi"}
+...
+---
+apiVersion: "v1"
+kind: "ConfigMap"
+metadata:
+  name: "nfs-check"
+data:
+  check.py: |
+    import fcntl, os, sys, time
+    role, path = sys.argv[1], "/shared/probe.txt"
+    if role == "holder":
+        with open(path, "w") as f:
+            f.write("shared content\n")
+        os.setxattr(path, "user.opencloud.test", b"xattr-value")
+        with open(path + ".lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            open("/shared/locked", "w").close()
+            print("holder: lock taken", flush=True)
+            time.sleep(60)
+        sys.exit(0)
+    for _ in range(120):
+        if os.path.exists("/shared/locked"):
+            break
+        time.sleep(1)
+    else:
+        sys.exit("FAIL checker: holder never took the lock")
+    ok = True
+    content = open(path).read()
+    if content != "shared content\n":
+        print(f"FAIL content not visible: {content!r}"); ok = False
+    try:
+        value = os.getxattr(path, "user.opencloud.test")
+        if value != b"xattr-value":
+            print(f"FAIL xattr differs: {value!r}"); ok = False
+    except OSError as error:
+        print(f"FAIL xattr not readable over NFS: {error}"); ok = False
+    with open(path + ".lock", "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            print("FAIL lock was granted although the other node holds it"); ok = False
+        except BlockingIOError:
+            print("ok   lock held by the other node is respected")
+    print("NFS CHECK PASSED" if ok else "NFS CHECK FAILED", flush=True)
+    sys.exit(0 if ok else 1)
+...
+---
+apiVersion: "v1"
+kind: "Pod"
+metadata:
+  name: "nfs-holder"
+  labels: {app: "nfs-check"}
+spec:
+  restartPolicy: "Never"
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector: {matchLabels: {app: "nfs-check"}}
+          topologyKey: "kubernetes.io/hostname"
+  containers:
+    - name: "check"
+      image: "docker.io/library/python:3.15-alpine@sha256:d44b1254cb92329418d164b22b20d86bbd3869d48e80e09e476531a409a728bb"
+      command: ["python3", "/check/check.py", "holder"]
+      volumeMounts:
+        - {name: "shared", mountPath: "/shared"}
+        - {name: "check", mountPath: "/check"}
+  volumes:
+    - name: "shared"
+      persistentVolumeClaim: {claimName: "nfs-check"}
+    - name: "check"
+      configMap: {name: "nfs-check"}
+...
+---
+apiVersion: "v1"
+kind: "Pod"
+metadata:
+  name: "nfs-checker"
+  labels: {app: "nfs-check"}
+spec:
+  restartPolicy: "Never"
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector: {matchLabels: {app: "nfs-check"}}
+          topologyKey: "kubernetes.io/hostname"
+  containers:
+    - name: "check"
+      image: "docker.io/library/python:3.15-alpine@sha256:d44b1254cb92329418d164b22b20d86bbd3869d48e80e09e476531a409a728bb"
+      command: ["python3", "/check/check.py", "checker"]
+      volumeMounts:
+        - {name: "shared", mountPath: "/shared"}
+        - {name: "check", mountPath: "/check"}
+  volumes:
+    - name: "shared"
+      persistentVolumeClaim: {claimName: "nfs-check"}
+    - name: "check"
+      configMap: {name: "nfs-check"}
+...

@@ -1,0 +1,11 @@
+---
+# Layered on split.yaml: two storage pods sharing one ReadWriteMany data
+# volume (experimental), as in tests/e2e/shared.
+storagePods:
+  replicas: 2
+persistence:
+  data:
+    shared: true
+    accessMode: "ReadWriteMany"
+    storageClass: "nfs-rwx"
+...
