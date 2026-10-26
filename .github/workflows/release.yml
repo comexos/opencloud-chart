@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 20
     needs: "ci"
     permissions:
-      contents: "read"
+      contents: "write"   # GitHub release with the packaged chart
       packages: "write"
       id-token: "write"   # keyless cosign signature
     env:
@@ -69,4 +69,21 @@ jobs:
             exit 1
           fi
           cosign sign --yes "$REGISTRY/$owner/charts/opencloud@$digest"
+          echo "CHART_DIGEST=$digest" >> "$GITHUB_ENV"
+
+      - name: "Create GitHub release"
+        env:
+          GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          OWNER: "${{ github.repository_owner }}"
+        run: |
+          owner="${OWNER,,}"
+          {
+            echo "Install: \`helm install opencloud oci://$REGISTRY/$owner/charts/opencloud --version $CHART_VERSION\`"
+            echo
+            echo "Digest: \`$CHART_DIGEST\`"
+          } > "$RUNNER_TEMP/notes.md"
+          # The generated notes (merged pull requests) follow these lines.
+          gh release create "$GITHUB_REF_NAME" "dist/opencloud-${CHART_VERSION}.tgz" \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/notes.md" --generate-notes
 ...
