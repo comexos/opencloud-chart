@@ -201,7 +201,6 @@ graphApplicationId: [GRAPH_APPLICATION_ID]
 serviceAccountId: [OC_SERVICE_ACCOUNT_ID]
 serviceAccountSecret: [OC_SERVICE_ACCOUNT_SECRET]
 wopiSecret: [COLLABORATION_WOPI_SECRET]
-thumbnailsTransferToken: [THUMBNAILS_TRANSFER_TOKEN]
 storageUsersMountId: [STORAGE_USERS_MOUNT_ID, GATEWAY_STORAGE_USERS_MOUNT_ID]
 {{- end -}}
 
@@ -301,6 +300,9 @@ key: {{ .managedKey }}
 {{- if and (not .Values.storage.s3.existingSecret) (or (not .Values.storage.s3.accessKeyId) (not .Values.storage.s3.secretKey)) -}}
 {{- fail "storage.s3 requires existingSecret, or both accessKeyId and secretKey" -}}
 {{- end -}}
+{{- end -}}
+{{- if and .Values.sharing.guestLinks (not .Values.smtp.enabled) -}}
+{{- fail "sharing.guestLinks requires smtp.enabled: guests get their link by email" -}}
 {{- end -}}
 {{- if .Values.smtp.enabled -}}
 {{- if or (not .Values.smtp.host) (not .Values.smtp.sender) -}}

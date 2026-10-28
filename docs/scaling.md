@@ -15,7 +15,7 @@ persistence:
 
 - **File system:** OpenCloud keeps its metadata in extended attributes and coordinates writers with `flock`. Use NFS 4.2 mounted with `noac`, or CephFS. NFS 4.1 and older have no extended attributes.
 - **Restarts:** while a storage pod restarts, requests routed to it fail for up to about 30 seconds after the new pod is ready (see the [scaling overview](../README.md#scaling)); the data stays intact.
-- **search and ocm** hold state that only one process may own (the search index, the OCM invitation store), so they run on the first pod, `<fullname>-0`, only. While that pod restarts, search and OCM are unavailable; file access continues through the other pods.
+- **search, ocm and auth-guest** hold state that only one process may own (the search index, the OCM invitation store, the guest-link tokens), so they run on the first pod, `<fullname>-0`, only. While that pod restarts, search, OCM and guest access are unavailable; file access continues through the other pods.
 - **Not supported upstream:** OpenCloud's maintainers name shared `ReadWriteMany` storage as the prerequisite for several instances, but there is no published, tested configuration. `tests/e2e/shared/run.sh` checks this setup on NFS; run it against your storage before relying on it.
 - **Scaling:** with shared storage, changing `storagePods.replicas` keeps the same claim, including when scaling down to one pod. Set `shared` before installation if you want this option.
 
@@ -23,7 +23,7 @@ Entering or leaving shared mode changes the volume layout. Stop writers, preserv
 
 ## NATS
 
-In `split`, the pods share OpenCloud's service registry, events, caches and stores through an external NATS cluster. The chart does not deploy NATS. Run one with JetStream, for example with the [official NATS chart](https://github.com/nats-io/k8s/tree/main/helm/charts/nats), and note these OpenCloud 8.1 requirements:
+In `split`, the pods share OpenCloud's service registry, events, caches and stores through an external NATS cluster. The chart does not deploy NATS. Run one with JetStream, for example with the [official NATS chart](https://github.com/nats-io/k8s/tree/main/helm/charts/nats), and note these OpenCloud 9.0 requirements:
 
 - **Memory storage:** the service registry keeps its data in JetStream memory storage. Without it, the pods fail with `insufficient resources`.
 - **No TLS for the registry:** the registry client has no TLS option, so the client port must accept plain connections. Restrict access with a NetworkPolicy.

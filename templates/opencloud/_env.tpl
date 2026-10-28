@@ -60,6 +60,8 @@
   value: {{ .Values.sharing.publicShareMustHavePassword | quote }}
 - name: OC_SHARING_PUBLIC_WRITEABLE_SHARE_MUST_HAVE_PASSWORD
   value: {{ .Values.sharing.publicWriteableShareMustHavePassword | quote }}
+- name: OC_ENABLE_GUEST_LINKS
+  value: {{ .Values.sharing.guestLinks | quote }}
 - name: OC_PASSWORD_POLICY_DISABLED
   value: {{ .Values.passwordPolicy.disabled | quote }}
 - name: OC_PASSWORD_POLICY_MIN_CHARACTERS

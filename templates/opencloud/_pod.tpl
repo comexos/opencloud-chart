@@ -56,8 +56,11 @@
       {{- if or (not $external) $ctx.Values.extraInitContainers }}
       initContainers:
         {{- if not $external }}
-        # Generates /etc/opencloud/opencloud.yaml with random service secrets
-        # on the first start only; the file lives on the config volume.
+        # Generates /etc/opencloud/opencloud.yaml with random service secrets on the
+        # first start; the file lives on the config volume. Later starts apply what a
+        # new OpenCloud version adds (opencloud init --diff keeps existing values). The
+        # diff runs on a copy in /tmp, because it writes a backup file on every run.
+        # --diff refuses to run with an admin password set, so the diff unsets it.
         - name: init-config
           image: {{ include "opencloud.image" $ctx | quote }}
           imagePullPolicy: {{ $ctx.Values.image.pullPolicy }}
@@ -70,7 +73,17 @@
             - -ec
             - |
               if [ -s /etc/opencloud/opencloud.yaml ]; then
-                echo "opencloud.yaml exists, skipping opencloud init"
+                work=$(mktemp -d)
+                cp /etc/opencloud/opencloud.yaml "$work/"
+                env -u IDM_ADMIN_PASSWORD -u ADMIN_PASSWORD \
+                  opencloud init --diff --quiet --config-path "$work" >/dev/null
+                if [ -f "$work/opencloud.config.patch" ]; then
+                  patch /etc/opencloud/opencloud.yaml < "$work/opencloud.config.patch"
+                  echo "opencloud.yaml updated for this OpenCloud version"
+                else
+                  echo "opencloud.yaml is up to date"
+                fi
+                rm -rf "$work"
               else
                 opencloud init --quiet
                 echo "opencloud.yaml generated"
@@ -154,7 +167,7 @@
                   {{- end }}
                   ;;
               esac
-              export THUMBNAILS_DATA_ENDPOINT="${THUMBNAILS_DATA_ENDPOINT:-http://${pod_host}:9186/thumbnails/data}"
+              export WEBDAV_THUMBNAILS_GENERATOR_URL="${WEBDAV_THUMBNAILS_GENERATOR_URL:-http://${pod_host}:9186}"
               {{- if $shared }}
               if [ "${HOSTNAME##*-}" = "0" ] && [ -n "${OC_SINGLETON_SERVICES:-}" ]; then
                 export OC_RUN_SERVICES="${OC_RUN_SERVICES},${OC_SINGLETON_SERVICES}"

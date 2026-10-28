@@ -139,7 +139,7 @@ replace_pod() { # replace_pod NAME: deletes a storage pod and waits for its repl
 }
 
 # Every OpenCloud pod caches the service registry for 30 seconds (hard-coded in
-# OpenCloud 8.1): after pods start or go away, requests may go to an address
+# OpenCloud 9.0): after pods start or go away, requests may go to an address
 # that is not (or no longer) registered and fail until the cache expires. The
 # checks test the steady state, not that window.
 settle() { sleep "${REGISTRY_SETTLE:-40}"; }
@@ -231,7 +231,7 @@ read -r node0 node1 <<<"$nodes"
 [ "$node0" != "$node1" ] || fail "both storage pods run on $node0"
 echo "ok   storage pods on $node0 and $node1, sharing opencloud-data"
 
-# search and ocm run on the first storage pod only: the container command adds
+# search, ocm and auth-guest run on the first storage pod only: the container command adds
 # them to OC_RUN_SERVICES there before exec'ing opencloud (PID 1).
 running() { # running POD: the services the opencloud process was started with
   kubectl -n oc exec "$1" -c opencloud -- sh -c 'tr "\0" "\n" < /proc/1/environ | sed -n "s/^OC_RUN_SERVICES=//p"'
@@ -240,13 +240,13 @@ services0=$(running opencloud-0)
 services1=$(running opencloud-1)
 echo "     opencloud-0 runs: $services0"
 echo "     opencloud-1 runs: $services1"
-if [ "$services0" != "storage-users,storage-system,search,ocm" ]; then
-  fail "opencloud-0 should run storage-users,storage-system,search,ocm"
+if [ "$services0" != "storage-users,storage-system,search,ocm,auth-guest" ]; then
+  fail "opencloud-0 should run storage-users,storage-system,search,ocm,auth-guest"
 fi
 if [ "$services1" != "storage-users,storage-system" ]; then
   fail "opencloud-1 should run storage-users,storage-system only"
 fi
-echo "ok   search and ocm on opencloud-0 only"
+echo "ok   search, ocm and auth-guest on opencloud-0 only"
 settle
 
 with_opencloud python3 "$e2e/check.py" write shared
@@ -257,7 +257,7 @@ replace_pod opencloud-1
 with_opencloud python3 "$shared/check_shared.py" verify one
 with_opencloud python3 "$shared/check_shared.py" write two
 
-step "3b. replace storage pod opencloud-0 (search, ocm)"
+step "3b. replace storage pod opencloud-0 (search, ocm, auth-guest)"
 replace_pod opencloud-0
 with_opencloud python3 "$shared/check_shared.py" verify one
 with_opencloud python3 "$shared/check_shared.py" verify two
