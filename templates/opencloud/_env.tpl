@@ -199,7 +199,7 @@
 - name: STORAGE_USERS_DECOMPOSEDS3_ACCESS_KEY
   valueFrom:
     secretKeyRef:
-      {{- include "opencloud.secretRef" (dict "existingSecret" .Values.storage.s3.existingSecret "existingKey" .Values.storage.s3.accessKeySecretKey "managedKey" "s3AccessKey" "context" .) | nindent 18 }}
+      {{- include "opencloud.secretRef" (dict "existingSecret" .Values.storage.s3.existingSecret "existingKey" .Values.storage.s3.accessKeyIdSecretKey "managedKey" "s3AccessKeyId" "context" .) | nindent 18 }}
 - name: STORAGE_USERS_DECOMPOSEDS3_SECRET_KEY
   valueFrom:
     secretKeyRef:

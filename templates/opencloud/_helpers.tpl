@@ -242,7 +242,7 @@ type = none
 {{- define "opencloud.needsManagedSecret" -}}
 {{- if or
   (and (not .Values.admin.existingSecret) .Values.admin.password)
-  (and (eq .Values.storage.driver "decomposeds3") (not .Values.storage.s3.existingSecret) .Values.storage.s3.accessKey .Values.storage.s3.secretKey)
+  (and (eq .Values.storage.driver "decomposeds3") (not .Values.storage.s3.existingSecret) .Values.storage.s3.accessKeyId .Values.storage.s3.secretKey)
   (and .Values.smtp.enabled (not .Values.smtp.existingSecret) .Values.smtp.password)
   (and (eq (include "opencloud.externalLdap" .) "true") (not .Values.identity.ldap.existingSecret) .Values.identity.ldap.bindPassword)
   (and (not .Values.metrics.token.existingSecret) .Values.metrics.token.value)
@@ -298,8 +298,8 @@ key: {{ .managedKey }}
 {{- if or (not .Values.storage.s3.endpoint) (not .Values.storage.s3.bucket) -}}
 {{- fail "storage.driver decomposeds3 requires storage.s3.endpoint and storage.s3.bucket" -}}
 {{- end -}}
-{{- if and (not .Values.storage.s3.existingSecret) (or (not .Values.storage.s3.accessKey) (not .Values.storage.s3.secretKey)) -}}
-{{- fail "storage.s3 requires existingSecret, or both accessKey and secretKey" -}}
+{{- if and (not .Values.storage.s3.existingSecret) (or (not .Values.storage.s3.accessKeyId) (not .Values.storage.s3.secretKey)) -}}
+{{- fail "storage.s3 requires existingSecret, or both accessKeyId and secretKey" -}}
 {{- end -}}
 {{- end -}}
 {{- if .Values.smtp.enabled -}}

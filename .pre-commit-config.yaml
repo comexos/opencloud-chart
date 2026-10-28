@@ -27,4 +27,10 @@ repos:
         language: "system"
         pass_filenames: false
         files: "^(templates/|values\\.yaml|values\\.schema\\.json|tests/)"
+      - id: "harness-tests"
+        name: "integration harness unit tests"
+        entry: "python3 tests/e2e/test_harness.py"
+        language: "system"
+        pass_filenames: false
+        files: "^tests/e2e/"
 ...
