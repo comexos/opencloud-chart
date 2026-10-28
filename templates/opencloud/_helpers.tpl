@@ -111,6 +111,16 @@ app.kubernetes.io/component: {{ .component }}
 {{- $services | uniq | join "," -}}
 {{- end -}}
 
+{{/* Whether a role's pods run the web service, which serves the web
+     extensions: the server in topology single, the frontend in split, never
+     the storage pods, and none when excludeServices removes web. */}}
+{{- define "opencloud.runsWeb" -}}
+{{- if and (ne .role "storage") (not (has "web" (.context.Values.excludeServices | default list))) -}}true{{- end -}}
+{{- end -}}
+
+{{/* Directory of the web extensions in the OpenCloud container (WEB_ASSET_APPS_PATH). */}}
+{{- define "opencloud.webExtensionsPath" -}}/var/lib/opencloud-web-extensions{{- end -}}
+
 {{/* The proxy routes the chart adds for its companions, plus user routes. */}}
 {{- define "opencloud.proxyRoutes" -}}
 {{- $routes := list -}}
@@ -341,6 +351,22 @@ key: {{ .managedKey }}
 {{- end -}}
 {{- if and .Values.gatewayAPI.httpRoute.enabled (not .Values.gatewayAPI.httpRoute.parentRefs) -}}
 {{- fail "gatewayAPI.httpRoute.parentRefs must reference an existing Gateway" -}}
+{{- end -}}
+{{- $extensions := list -}}
+{{- range .Values.web.extensions -}}
+{{- if not (regexMatch "^[a-z0-9]([a-z0-9-]{0,48}[a-z0-9])?$" (toString .name)) -}}
+{{- fail (printf "web.extensions: name %q must be lowercase letters, digits and dashes, at most 50 characters" (toString .name)) -}}
+{{- end -}}
+{{- if has .name $extensions -}}
+{{- fail (printf "web.extensions: name %q is used twice" .name) -}}
+{{- end -}}
+{{- $extensions = append $extensions .name -}}
+{{- if not (or .image.tag .image.digest) -}}
+{{- fail (printf "web.extensions: %s needs image.tag or image.digest" .name) -}}
+{{- end -}}
+{{- end -}}
+{{- if and $extensions (has "web" (.Values.excludeServices | default list)) -}}
+{{- fail "web.extensions requires the web service, which excludeServices removes" -}}
 {{- end -}}
 {{- if and (gt (len .Values.service.ipFamilies) 1) (not (has .Values.service.ipFamilyPolicy (list "PreferDualStack" "RequireDualStack"))) -}}
 {{- fail "service.ipFamilies with two entries requires service.ipFamilyPolicy PreferDualStack or RequireDualStack" -}}

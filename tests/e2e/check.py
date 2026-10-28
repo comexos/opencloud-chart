@@ -11,6 +11,7 @@ tokens are real Keycloak tokens carrying the uuid and roles claims.
 import base64
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -110,6 +111,34 @@ def identity_checks():
     return tokens
 
 
+def unzip_version():
+    """Version of the unzip image pinned in tests/e2e/values.yaml, which Renovate updates."""
+    values = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'values.yaml')).read()
+    return re.search(r'tag: "unzip-(\d+\.\d+\.\d+)"', values).group(1)
+
+
+def web_extension_checks():
+    """The unzip extension from tests/e2e/values.yaml: its init container copies the
+    files, the web service serves them and lists the app with its appsConfig settings."""
+    version = unzip_version()
+    status, raw = request('GET', f'{OC}/assets/apps/unzip/manifest.json')
+    try:
+        manifest = json.loads(raw) if status == 200 else {}
+    except ValueError:
+        manifest = {}
+    check(f'web extension unzip {version} is served', manifest.get('name') == 'web-app-unzip'
+          and manifest.get('version') == version and manifest.get('entrypoint', '').endswith('.mjs'), (status, raw[:200]))
+    status, raw = request('GET', f'{OC}/config.json')
+    apps = json.loads(raw).get('external_apps', []) if status == 200 else []
+    unzip = next((app for app in apps if app.get('id') == 'unzip'), {})
+    check('web config lists unzip with its appsConfig settings',
+          unzip.get('path', '').endswith(f"unzip/{manifest.get('entrypoint')}")
+          and (unzip.get('config') or {}).get('e2e') == 'settings from appsConfig', apps)
+    if unzip.get('path'):
+        status, _ = request('GET', OC + unzip['path'])
+        check('unzip entrypoint is served', status == 200, status)
+
+
 def write(marker):
     tokens = identity_checks()
     content = f'opencloud e2e {marker}\n'.encode()
@@ -126,12 +155,15 @@ def write(marker):
     check('yjs through the proxy', status == 200, status)
     status, raw = request('GET', f'{OC}/config.json')
     check('web config advertises yjs', status == 200 and b'/yjs' in raw, raw[:200])
+    web_extension_checks()
 
 
 def read(marker):
     tokens = identity_checks()
     status, raw, _ = download(f'{OC}/remote.php/webdav/{marker}.txt', tokens['alice'])
     check(f'{marker}.txt survived', status == 200 and raw == f'opencloud e2e {marker}\n'.encode(), (status, raw[:200]))
+    # The volume is an emptyDir: a new pod copies the extension again.
+    web_extension_checks()
 
 
 if __name__ == '__main__':

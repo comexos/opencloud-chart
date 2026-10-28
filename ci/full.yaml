@@ -51,6 +51,13 @@ proxy:
       backend: "http://custom.example.svc.cluster.local:8080"
       unprotected: true
 web:
+  extensions:
+    - name: "unzip"
+      image:
+        registry: "docker.io"
+        repository: "opencloudeu/web-extensions"
+        tag: "unzip-2.2.1"
+        digest: "sha256:9a71251417a4e76dafa15fcddff9540cbdcdbf0813ac347049e900654a3df448"
   appsConfig:
     maps:
       config:

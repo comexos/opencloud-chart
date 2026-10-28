@@ -428,8 +428,8 @@ class ChartChecks(unittest.TestCase):
                      'ldap': {'uri': 'ldaps://ldap:636', 'bindDn': 'cn=b', 'existingSecret': 'ldap', 'userBaseDn': 'ou=u', 'groupBaseDn': 'ou=g', 'writeEnabled': False}},
     }
 
-    def external(self, extra=None):
-        return render({'domain': 'example.org', **self.EXTERNAL, **(extra or {})}, raw_defaults=True)
+    def external(self, extra=None, succeeds=True):
+        return render({'domain': 'example.org', **self.EXTERNAL, **(extra or {})}, succeeds=succeeds, raw_defaults=True)
 
     def test_external_service_secrets(self):
         docs = self.external()
@@ -473,8 +473,8 @@ class ChartChecks(unittest.TestCase):
 
     SPLIT = {'topology': 'split', 'nats': {'address': 'nats.nats:4222', 'existingSecret': 'nats'}}
 
-    def split(self, extra=None):
-        return self.external({**self.SPLIT, **(extra or {})})
+    def split(self, extra=None, succeeds=True):
+        return self.external({**self.SPLIT, **(extra or {})}, succeeds)
 
     def test_split_layout(self):
         docs = self.split({'smtp': {'enabled': True, 'host': 'smtp', 'sender': 'a@b'}, 'extraEnv': {'OC_LOG_LEVEL': 'debug'}})
@@ -749,6 +749,72 @@ class ChartChecks(unittest.TestCase):
         self.assertIn('requires smtp.enabled', render({'sharing': {'guestLinks': True}}, succeeds=False))
         smtp = {'enabled': True, 'host': 'smtp.example.org', 'sender': 'cloud@example.org'}
         self.assertEqual(env(render({'sharing': {'guestLinks': True}, 'smtp': smtp}))['OC_ENABLE_GUEST_LINKS']['value'], 'true')
+    UNZIP = {'name': 'unzip', 'image': {'registry': 'docker.io', 'repository': 'opencloudeu/web-extensions',
+                                        'tag': 'unzip-2.2.1', 'digest': 'sha256:' + 'b' * 64}}
+
+    def assert_web_extensions(self, pod, names):
+        """The pod copies the named extensions into the web-extensions volume and serves them from there."""
+        inits = [c for c in pod.get('initContainers', []) if c['name'].startswith('extension-')]
+        self.assertEqual([c['name'] for c in inits], ['extension-' + n for n in names])
+        c = pod['containers'][0]
+        variables = {e['name']: e for e in c['env']}
+        mounts = {m['name']: m for m in c['volumeMounts']}
+        volumes = {v['name']: v for v in pod['volumes']}
+        if not names:
+            self.assertNotIn('WEB_ASSET_APPS_PATH', variables)
+            self.assertNotIn('web-extensions', mounts)
+            self.assertNotIn('web-extensions', volumes)
+            return inits
+        self.assertEqual(variables['WEB_ASSET_APPS_PATH']['value'], '/var/lib/opencloud-web-extensions')
+        self.assertEqual(mounts['web-extensions'], {'name': 'web-extensions', 'mountPath': '/var/lib/opencloud-web-extensions', 'readOnly': True})
+        self.assertEqual(volumes['web-extensions'], {'name': 'web-extensions', 'emptyDir': {}})
+        for init, name in zip(inits, names):
+            self.assertEqual(init['volumeMounts'], [{'name': 'web-extensions', 'mountPath': '/extensions'}])
+            self.assertEqual(init['securityContext'], pod['containers'][0]['securityContext'])
+            self.assertIn(f'[ ! -f /web/apps/{name}/manifest.json ]', init['command'][2])
+            self.assertIn(f'cp -R /web/apps/{name} /extensions/', init['command'][2])
+            self.assertEqual(init['command'][:2], ['/bin/sh', '-ec'])
+        return inits
+
+    def test_web_extensions_single(self):
+        # Without extensions nothing changes, so a manually filled apps directory keeps working.
+        self.assert_web_extensions(workload(render())['spec']['template']['spec'], [])
+        jsonviewer = {'name': 'json-viewer', 'image': {'repository': 'opencloudeu/web-extensions', 'tag': 'json-viewer-1.0.0',
+                                                       'pullPolicy': 'Always', 'pullSecrets': ['extensions']}}
+        docs = render({'web': {'extensions': [self.UNZIP, jsonviewer], 'appsConfig': {'unzip': {'config': {}}}},
+                       'global': {'imageRegistry': 'mirror.example', 'imagePullSecrets': ['registry']}})
+        pod = workload(docs)['spec']['template']['spec']
+        unzip, viewer = self.assert_web_extensions(pod, ['unzip', 'json-viewer'])
+        # Digest before tag; the global registry applies as for every other image.
+        self.assertEqual(unzip['image'], 'mirror.example/opencloudeu/web-extensions@sha256:' + 'b' * 64)
+        self.assertEqual(unzip['imagePullPolicy'], 'IfNotPresent')
+        self.assertEqual(viewer['image'], 'mirror.example/opencloudeu/web-extensions:json-viewer-1.0.0')
+        self.assertEqual(viewer['imagePullPolicy'], 'Always')
+        self.assertEqual(pod['imagePullSecrets'], [{'name': 'registry'}, {'name': 'extensions'}])
+        # appsConfig stays independent of the installed files.
+        self.assertIn('unzip', yaml.safe_load(files(docs)['apps.yaml']))
+        # An explicit WEB_ASSET_APPS_PATH wins, like every other chart variable.
+        docs = render({'web': {'extensions': [self.UNZIP]}, 'extraEnv': {'WEB_ASSET_APPS_PATH': '/custom'}})
+        self.assertEqual(env(docs)['WEB_ASSET_APPS_PATH']['value'], '/custom')
+
+    def test_web_extensions_split(self):
+        docs = self.split({'web': {'extensions': [self.UNZIP]}})
+        frontend = find(docs, 'Deployment', 'opencloud-frontend')['spec']['template']['spec']
+        storage = workload(docs)['spec']['template']['spec']
+        self.assert_web_extensions(frontend, ['unzip'])
+        # The storage pods do not run web: no init containers, volume or variable.
+        self.assert_web_extensions(storage, [])
+
+    def test_web_extensions_rejected(self):
+        self.assertIn('requires the web service', render({'web': {'extensions': [self.UNZIP]}, 'excludeServices': ['web']}, succeeds=False))
+        self.assertIn('requires the web service', self.split({'web': {'extensions': [self.UNZIP]}, 'excludeServices': ['web']}, succeeds=False))
+        self.assertIn('is used twice', render({'web': {'extensions': [self.UNZIP, self.UNZIP]}}, succeeds=False))
+        for name in ('Unzip', '../unzip', 'unzip/js', '-unzip', 'a' * 51, ''):
+            render({'web': {'extensions': [{**self.UNZIP, 'name': name}]}}, succeeds=False)
+        self.assertIn('needs image.tag or image.digest', render({'web': {'extensions': [{'name': 'unzip', 'image': {'repository': 'x/y'}}]}}, succeeds=False))
+        render({'web': {'extensions': [{**self.UNZIP, 'path': '/web/apps/unzip'}]}}, succeeds=False)
+        render({'web': {'extensions': [{'name': 'unzip', 'image': {'tag': 'unzip-2.2.1'}}]}}, succeeds=False)
+
 
 if __name__ == '__main__':
     unittest.main()

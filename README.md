@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <a href="#install"><img alt="OCI registry" src="https://img.shields.io/badge/oci-ghcr.io%2Fs7n-systems%2Fcharts-0f1689?style=flat-square&amp;logo=helm&amp;logoColor=white"></a>
+  <a href="#install"><img alt="OCI registry" src="https://img.shields.io/badge/oci-ghcr.io%2Fs7n--systems%2Fcharts-0f1689?style=flat-square&amp;logo=helm&amp;logoColor=white"></a>
   <a href="#verify-the-signature"><img alt="Release signing" src="https://img.shields.io/badge/signing-cosign-2e7d32?style=flat-square&amp;logo=sigstore&amp;logoColor=white"></a>
   <a href="#images"><img alt="Images pinned by digest" src="https://img.shields.io/badge/images-digest%20pinned-2e7d32?style=flat-square&amp;logo=docker&amp;logoColor=white"></a>
   <a href="renovate.json"><img alt="Renovate configuration" src="https://img.shields.io/badge/renovate-configured-1a1f6c?style=flat-square&amp;logo=renovatebot&amp;logoColor=white"></a>
@@ -42,7 +42,7 @@ The chart deploys OpenCloud as a single-process StatefulSet with persistent conf
 - [Configuration](#configuration)
   - [Images](#images) · [Credentials](#credentials) · [Identity](#identity) · [Service secrets](#service-secrets)
   - [Storage](#storage) · [Scaling](#scaling) · [Networking](#networking) · [Web office](#web-office) · [Sharing](#sharing)
-  - [Optional services](#optional-services) · [Monitoring](#monitoring) · [Security](#security)
+  - [Optional services](#optional-services) · [Web extensions](#web-extensions) · [Monitoring](#monitoring) · [Security](#security)
 - [Operations](#operations)
 - [Development](#development)
 - [Values](#values)
@@ -54,7 +54,7 @@ The chart deploys OpenCloud as a single-process StatefulSet with persistent conf
 | --- | --- |
 | **Storage** | Local files or S3-compatible object storage, with persistent local metadata |
 | **Identity** | Built-in identity services or external OIDC, with optional external LDAP and configurable role mapping |
-| **Collaboration** | yjs editing, external WOPI office integration, optional Radicale and Apache Tika |
+| **Collaboration** | yjs editing, external WOPI office integration, optional Radicale and Apache Tika, web extensions from pinned images |
 | **Scaling** | One pod for small installations, or a storage pod plus a horizontally scalable frontend with autoscaling and a PodDisruptionBudget; experimentally, several storage pods on one ReadWriteMany volume |
 | **Exposure** | Ingress or Gateway API HTTPRoute; configurable proxy routes and Content Security Policy |
 | **Security** | Non-root containers, read-only root filesystems, dropped capabilities, no ServiceAccount token and images pinned by digest |
@@ -102,7 +102,7 @@ ingress:
 helm install opencloud . --namespace opencloud -f my-values.yaml
 ```
 
-Bitnami Common is vendored in `charts/`, so a checkout needs no dependency download. To install a published version, replace `.` with `oci://ghcr.io/s7n-systems/charts/opencloud` and add `--version 0.3.0`.
+Bitnami Common is vendored in `charts/`, so a checkout needs no dependency download. To install a published version, replace `.` with `oci://ghcr.io/s7n-systems/charts/opencloud` and add `--version 0.4.0`.
 
 The chart validates required settings and credential references during rendering. It cannot verify that Secrets exist, storage can be provisioned or external services are reachable. For an example with Keycloak, S3, SMTP and Collabora, see [examples/keycloak-s3.yaml](examples/keycloak-s3.yaml).
 
@@ -111,7 +111,7 @@ The chart validates required settings and credential references during rendering
 The release workflow signs published chart digests with cosign 3, which stores the signature as an OCI referrer in the new bundle format; verify with cosign 3 or newer (cosign 2 reports "no signatures found"):
 
 ```sh
-cosign verify ghcr.io/s7n-systems/charts/opencloud:0.3.0 \
+cosign verify ghcr.io/s7n-systems/charts/opencloud:0.4.0 \
   --certificate-identity-regexp '^https://github\.com/s7n-systems/opencloud-chart/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
@@ -274,8 +274,43 @@ These settings govern passwords, not whether public links may be created. The ch
 | `radicale.enabled` | Personal calendar and address book per user, authenticated by the OpenCloud proxy. Data on its own volume. |
 | `yjs.enabled` (default `true`) | Real-time collaborative editing in the web UI through the bundled yjs server. |
 | `antivirus.enabled` | Scans uploads through an external ClamAV (`clamavSocket: tcp://host:3310`) or ICAP server. Keep the scanner's stream limit at least `antivirus.maxScanSize`. |
-| `web.appsConfig` | Configuration of web extensions, rendered into `apps.yaml`. Install extensions into `/var/lib/opencloud/web/assets/apps` with `extraInitContainers`. |
+| `web.extensions` | Web extensions installed from images. See [Web extensions](#web-extensions). |
 | `csp.extraDirectives` | Additional Content Security Policy sources, for example for web extensions that embed other sites. |
+
+### Web extensions
+
+`web.extensions` installs web apps from images. Each image holds its app in `/web/apps/<name>`. The upstream images from [opencloud-eu/web-extensions](https://github.com/opencloud-eu/web-extensions) use this layout: `opencloudeu/web-extensions:<name>-<version>`.
+
+No apps are installed by default. A good start are `unzip` and `json-viewer`. Both run in the browser and need no external services:
+
+```yaml
+web:
+  extensions:
+    - name: "unzip"
+      image:
+        registry: "docker.io"
+        repository: "opencloudeu/web-extensions"
+        tag: "unzip-2.2.1"
+        digest: "sha256:9a71251417a4e76dafa15fcddff9540cbdcdbf0813ac347049e900654a3df448"
+    - name: "json-viewer"
+      image:
+        registry: "docker.io"
+        repository: "opencloudeu/web-extensions"
+        tag: "json-viewer-2.1.0"
+        digest: "sha256:fe43f1bb92d62c283ea6ed4a8b8d069f8ff4cfcaa75acbdec08fd9c256705df4"
+```
+
+- `name` is the app's directory in the image. Names must be unique.
+- One init container per app copies it into an `emptyDir`. Each new pod gets exactly the pinned versions.
+- Only pods that run `web` get the apps: the server pod, or the frontend pods in `topology: split`.
+- The pod does not start if the app directory is missing in the image.
+- The digest takes precedence over the tag. `global.imageRegistry` and `pullSecrets` work as for the other images.
+
+`web.appsConfig` holds the app settings and is rendered into `apps.yaml`. To turn off an app without removing it, set `web.appsConfig.<name>.disabled: true`. This also works for the apps built into OpenCloud.
+
+Apps like `draw-io` and `maps` load content from external servers. They need `csp.extraDirectives`.
+
+With `web.extensions` set, `WEB_ASSET_APPS_PATH` points to the chart's directory. Apps copied by hand to `/var/lib/opencloud/web/assets/apps` are then no longer served.
 
 ### Monitoring
 
@@ -386,7 +421,7 @@ Push a `vX.Y.Z` tag matching `version` in `Chart.yaml` to run CI, package the ch
 | externalUrl | string | `""` | Full public URL (OC_URL) when it is not https://<host>, for example with a non-standard port. Every browser-facing URL derives from it. |
 | extraEnv | object | `{}` | Extra environment variables as plain name/value pairs, for any OpenCloud setting not exposed above. Overrides chart-generated values; extraEnvVars takes precedence. |
 | extraEnvVars | list | `[]` | Extra environment variables as full Kubernetes `env` entries (for example `valueFrom.secretKeyRef`). Overrides extraEnv and chart-generated values. Names must be unique; list order is preserved. |
-| extraInitContainers | list | `[]` | Extra init containers, for example to copy web extensions into /var/lib/opencloud/web/assets/apps on the data volume. |
+| extraInitContainers | list | `[]` | Extra init containers. |
 | extraSecretEnv | object | `{}` | Extra environment variables from the chart-managed Secret. |
 | extraVolumeMounts | list | `[]` |  |
 | extraVolumes | list | `[]` |  |
@@ -625,7 +660,8 @@ Push a `vX.Y.Z` tag matching `version` in `Chart.yaml` to run CI, package the ch
 | tolerations | list | `[]` |  |
 | topology | string | `"single"` | single runs every OpenCloud service in one pod. split runs the services that keep state on the data volume (storage-users, storage-system, search, ocm) in the StatefulSet, which stays at one replica, and every other service in the scalable frontend Deployment. split requires identity.mode oidc with an external identity.ldap.uri, serviceSecrets.existingSecret and nats.address. Switching an installation from single to split keeps its data volume when the persistence layout is unchanged; see docs/upgrading.md. |
 | topologySpreadConstraints | list | `[]` |  |
-| web.appsConfig | object | `{}` | Configuration of installed web extensions, rendered into apps.yaml. |
+| web.appsConfig | object | `{}` | App settings, rendered into apps.yaml. |
+| web.extensions | list | `[]` | Web apps to install from images. See "Web extensions" in the README. |
 | yjs.affinity | object | `{}` |  |
 | yjs.containerSecurityContext.allowPrivilegeEscalation | bool | `false` |  |
 | yjs.containerSecurityContext.capabilities.drop[0] | string | `"ALL"` |  |

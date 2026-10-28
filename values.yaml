@@ -281,7 +281,9 @@ proxy:
   additionalRoutes: []
 
 web:
-  # -- Configuration of installed web extensions, rendered into apps.yaml.
+  # -- Web apps to install from images. See "Web extensions" in the README.
+  extensions: []
+  # -- App settings, rendered into apps.yaml.
   appsConfig: {}
 
 # Exposes the proxy's debug endpoint (/metrics on port 9205) to Prometheus, in
@@ -552,11 +554,11 @@ tika:
     repository: "apache/tika"
     # -- Image tag, kept in sync with the digest by Renovate.
     # @default -- pinned, see values.yaml
-    tag: "4.1.0"
+    tag: "4.2.0"
     # -- Multi-arch index digest of the tag. Takes precedence over the tag;
     # clear it to float on the tag instead.
     # @default -- pinned, see values.yaml
-    digest: "sha256:fe2c6e3fca77b986ff3368107a20fa5060a3eefd03d14c12b45c0334626335d2"
+    digest: "sha256:b99f19c4fd76237dafe7d22f719b9bddfa9a449da687c597a41e2f6d9a595418"
     pullPolicy: "IfNotPresent"
     pullSecrets: []
   resources:
@@ -672,8 +674,7 @@ extraEnv: {}
 extraSecretEnv: {}
 # -- Extra environment variables as full Kubernetes `env` entries (for example `valueFrom.secretKeyRef`). Overrides extraEnv and chart-generated values. Names must be unique; list order is preserved.
 extraEnvVars: []
-# -- Extra init containers, for example to copy web extensions into
-# /var/lib/opencloud/web/assets/apps on the data volume.
+# -- Extra init containers.
 extraInitContainers: []
 # -- Lifecycle hooks for the OpenCloud container.
 lifecycleHooks: {}

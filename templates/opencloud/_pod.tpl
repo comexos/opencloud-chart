@@ -8,6 +8,13 @@
 {{- $frontend := eq $role "frontend" }}
 {{- $shared := and (eq $role "storage") (eq (include "opencloud.sharedData" $ctx) "true") }}
 {{- $fullname := include "opencloud.fullname" $ctx }}
+{{- /* Web extensions go only to pods that run the web service. */}}
+{{- $extensions := list }}
+{{- if eq (include "opencloud.runsWeb" (dict "role" $role "context" $ctx)) "true" }}
+{{- $extensions = $ctx.Values.web.extensions | default list }}
+{{- end }}
+{{- $images := list $ctx.Values.image }}
+{{- range $extensions }}{{- $images = append $images .image }}{{- end }}
 {{- $podLabels := $ctx.Values.podLabels }}
 {{- $podAnnotations := $ctx.Values.podAnnotations }}
 {{- $scheduling := pick $ctx.Values "nodeSelector" "affinity" "tolerations" "topologySpreadConstraints" }}
@@ -32,7 +39,7 @@
       serviceAccountName: {{ include "opencloud.serviceAccountName" $ctx }}
       automountServiceAccountToken: {{ $ctx.Values.serviceAccount.automountServiceAccountToken }}
       terminationGracePeriodSeconds: {{ $ctx.Values.terminationGracePeriodSeconds }}
-      {{- include "common.images.renderPullSecrets" (dict "images" (list $ctx.Values.image) "context" $ctx) | nindent 6 }}
+      {{- include "common.images.renderPullSecrets" (dict "images" $images "context" $ctx) | nindent 6 }}
       {{- if $ctx.Values.podSecurityContext.enabled }}
       securityContext:
         {{- omit $ctx.Values.podSecurityContext "enabled" | toYaml | nindent 8 }}
@@ -53,7 +60,7 @@
       topologySpreadConstraints: {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- $external := eq (include "opencloud.externalServiceSecrets" $ctx) "true" }}
-      {{- if or (not $external) $ctx.Values.extraInitContainers }}
+      {{- if or (not $external) $extensions $ctx.Values.extraInitContainers }}
       initContainers:
         {{- if not $external }}
         # Generates /etc/opencloud/opencloud.yaml with random service secrets on the
@@ -105,6 +112,32 @@
           resources:
             {{- toYaml $ctx.Values.initResources | nindent 12 }}
         {{- end }}
+        {{- range $extensions }}
+        # Copies web extension {{ .name }} from its image into the web-extensions volume.
+        - name: extension-{{ .name }}
+          image: {{ include "common.images.image" (dict "imageRoot" .image "global" $ctx.Values.global) | quote }}
+          imagePullPolicy: {{ .image.pullPolicy | default "IfNotPresent" }}
+          {{- if $ctx.Values.containerSecurityContext.enabled }}
+          securityContext:
+            {{- omit $ctx.Values.containerSecurityContext "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              if [ ! -f /web/apps/{{ .name }}/manifest.json ]; then
+                echo "/web/apps/{{ .name }}/manifest.json not found in the image" >&2
+                exit 1
+              fi
+              rm -rf /extensions/{{ .name }}
+              cp -R /web/apps/{{ .name }} /extensions/
+              echo "web extension {{ .name }} installed"
+          volumeMounts:
+            - name: web-extensions
+              mountPath: /extensions
+          resources:
+            {{- toYaml $ctx.Values.initResources | nindent 12 }}
+        {{- end }}
         {{- with $ctx.Values.extraInitContainers }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -129,6 +162,9 @@
       {{- range include "opencloud.roleEnv" (dict "context" $ctx "role" $role) | fromYamlArray }}
       {{- if not (has .name $names) }}{{- $env = append $env . }}{{- end }}
       {{- end }}
+      {{- if and $extensions (not (has "WEB_ASSET_APPS_PATH" $names)) }}
+      {{- $env = append $env (dict "name" "WEB_ASSET_APPS_PATH" "value" (include "opencloud.webExtensionsPath" $ctx)) }}
+      {{- end }}
       {{- $env = concat $env $overrides }}
       {{- $envFrom := list }}
       {{- if $ctx.Values.extraSecretEnv }}{{- $envFrom = append $envFrom (dict "secretRef" (dict "name" (printf "%s-env" $fullname))) }}{{- end }}
@@ -136,6 +172,9 @@
       {{- $mounts := list (dict "name" "config" "mountPath" "/etc/opencloud") (dict "name" "data" "mountPath" "/var/lib/opencloud") (dict "name" "tmp" "mountPath" "/tmp") }}
       {{- range $file := include "opencloud.configFiles" $ctx | fromYamlArray }}
       {{- $mounts = append $mounts (dict "name" "files" "mountPath" (printf "/etc/opencloud/%s" $file) "subPath" $file "readOnly" true) }}
+      {{- end }}
+      {{- if $extensions }}
+      {{- $mounts = append $mounts (dict "name" "web-extensions" "mountPath" (include "opencloud.webExtensionsPath" $ctx) "readOnly" true) }}
       {{- end }}
       {{- $mounts = concat $mounts ($ctx.Values.extraVolumeMounts | default list) }}
       containers:
@@ -231,9 +270,13 @@
         - name: files
           configMap:
             name: {{ $fullname }}-files
+        {{- if $extensions }}
+        - name: web-extensions
+          emptyDir: {}
+        {{- end }}
         {{- if $frontend }}
         # Service secrets come from the environment; /var/lib/opencloud only
-        # holds caches such as thumbnails and web extensions.
+        # holds caches such as thumbnails.
         - name: config
           emptyDir: {}
         - name: data

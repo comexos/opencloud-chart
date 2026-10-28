@@ -2,6 +2,12 @@
 
 Before an upgrade, back up config and data volumes, external service secrets and any S3 data. Test restoration. Review upstream application release notes as well as chart changes.
 
+## Chart 0.4.0: web extensions
+
+- **New:** `web.extensions` installs web apps from images. See [Web extensions](../README.md#web-extensions).
+- **Apps installed by hand:** if you copy apps to `/var/lib/opencloud/web/assets/apps` with `extraInitContainers`, move them to `web.extensions`. Once `web.extensions` is set, that directory is no longer served.
+- **Tika:** updated to 4.2.0.
+
 ## Chart 0.3.0: OpenCloud 9.0
 
 Read the upstream [upgrade notes](https://docs.opencloud.eu/docs/next/admin/maintenance/upgrade/upgrade-9.x.x). For the chart:
