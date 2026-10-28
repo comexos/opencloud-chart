@@ -190,11 +190,11 @@ storage:
     bucket: ""
     # -- Existing Secret with the access and secret key.
     existingSecret: ""
-    accessKeySecretKey: "accessKey"
+    accessKeyIdSecretKey: "accessKeyId"
     secretKeySecretKey: "secretKey"
     # -- Fallback only, stored in a chart-managed Secret. Prefer existingSecret.
     # Both are required together when existingSecret is not set.
-    accessKey: ""
+    accessKeyId: ""
     secretKey: ""
 
 # Email notifications. Enables the notifications service.
@@ -325,7 +325,7 @@ clusterDomain: "cluster.local"
 # in the scalable frontend Deployment. split requires identity.mode oidc with
 # an external identity.ldap.uri, serviceSecrets.existingSecret and
 # nats.address. Switching an installation from single to split keeps its data
-# volume; see the README.
+# volume when the persistence layout is unchanged; see docs/upgrading.md.
 topology: "single"
 
 # The stateless OpenCloud services of topology split: proxy, web UI, gateway,
@@ -368,15 +368,15 @@ storagePods:
   # persistence.data.shared: the pods share one ReadWriteMany data volume on a
   # file system with flock and extended attributes, e.g. NFS 4.2 mounted with
   # noac, or CephFS. search and ocm keep state that only one process may hold
-  # and run on the first pod only. See the README.
+  # and run on the first pod only. See docs/scaling.md.
   replicas: 1
 
 # External NATS cluster for topology split, which holds the service registry,
 # events, caches and stores shared by the pods. It needs JetStream with file
 # and memory storage. OpenCloud 8.1 connects to the registry without TLS, and
 # its health checks connect without credentials: with authentication, also
-# allow such connections (e.g. a no_auth_user without permissions). See the
-# README for NATS chart values.
+# allow such connections (e.g. a no_auth_user without permissions). See
+# docs/scaling.md#nats for NATS chart values.
 nats:
   # -- host:port of the NATS cluster, e.g. nats.nats.svc.cluster.local:4222.
   address: ""
@@ -408,7 +408,7 @@ persistence:
     # existingClaim) in every storage pod instead of a claim per pod, with any
     # storagePods.replicas. Requires accessMode ReadWriteMany. Set it before
     # installation: storagePods.replicas can then change in both directions
-    # without touching the volume. See the README.
+    # without touching the volume. See docs/scaling.md.
     shared: false
     accessMode: "ReadWriteOnce"
     storageClass: ""
@@ -663,15 +663,17 @@ affinity: {}
 tolerations: []
 topologySpreadConstraints: []
 # -- Extra environment variables as plain name/value pairs, for any OpenCloud
-# setting not exposed above.
+# setting not exposed above. Overrides chart-generated values; extraEnvVars takes precedence.
 extraEnv: {}
 # -- Extra environment variables from the chart-managed Secret.
 extraSecretEnv: {}
-# -- Extra environment variables as full Kubernetes `env` entries (for example `valueFrom.secretKeyRef`). Takes precedence over `extraEnv`; names must be unique.
+# -- Extra environment variables as full Kubernetes `env` entries (for example `valueFrom.secretKeyRef`). Overrides extraEnv and chart-generated values. Names must be unique; list order is preserved.
 extraEnvVars: []
 # -- Extra init containers, for example to copy web extensions into
 # /var/lib/opencloud/web/assets/apps on the data volume.
 extraInitContainers: []
+# -- Lifecycle hooks for the OpenCloud container.
+lifecycleHooks: {}
 extraVolumes: []
 extraVolumeMounts: []
 ...

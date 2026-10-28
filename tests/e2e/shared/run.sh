@@ -95,7 +95,31 @@ forward() { # forward NAMESPACE TARGET PORT: sets FORWARD_URL and FORWARD_PID
   return 1
 }
 
-wait_ready() { kubectl -n "$1" wait --for=condition=Ready pod --all --timeout=600s >/dev/null; }
+wait_ready() { # wait_ready NAMESPACE: pods being deleted are gone, all others are ready
+  local ns=$1 leaving pod
+  # After a scale-down the removed pod may still be terminating; it never turns
+  # ready again, so wait for it to go away instead.
+  leaving=$(kubectl -n "$ns" get pods -o jsonpath='{range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}')
+  for pod in $leaving; do
+    if ! kubectl -n "$ns" wait --for=delete "pod/$pod" --timeout=300s >/dev/null 2>&1; then
+      diagnose_pods "$ns"
+      fail "pod $pod did not terminate within 300s"
+    fi
+  done
+  if ! kubectl -n "$ns" wait --for=condition=Ready pod --all --timeout=600s >/dev/null; then
+    diagnose_pods "$ns"
+    fail "pods in $ns did not become ready"
+  fi
+}
+
+diagnose_pods() { # diagnose_pods NAMESPACE: pod states and the logs of pods that are not ready
+  local ns=$1 pod
+  kubectl -n "$ns" get pods -o wide >&2 || true
+  for pod in $(kubectl -n "$ns" get pods -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' | awk '$2 != "True" {print $1}'); do
+    echo "-- $pod" >&2
+    kubectl -n "$ns" logs "pod/$pod" --all-containers --tail=20 >&2 2>&1 || true
+  done
+}
 
 with_opencloud() { # with_opencloud COMMAND...: runs COMMAND with OC and KC set
   forward oc svc/opencloud 9200 || return $?

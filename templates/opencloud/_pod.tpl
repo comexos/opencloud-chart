@@ -96,8 +96,7 @@
         {{- toYaml . | nindent 8 }}
         {{- end }}
       {{- end }}
-      {{- /* Environment shared by the OpenCloud container and the maintenance
-             sidecar. extraEnv and extraEnvVars entries replace chart-set
+      {{- /* Environment for the OpenCloud container. extraEnv and extraEnvVars entries replace chart-set
              variables of the same name, since Kubernetes keeps one per name. */}}
       {{- $overrides := $ctx.Values.extraEnvVars | default list }}
       {{- $names := list }}
@@ -134,16 +133,33 @@
           securityContext:
             {{- omit $ctx.Values.containerSecurityContext "enabled" | toYaml | nindent 12 }}
           {{- end }}
-          {{- if $shared }}
-          # Several storage pods share the data volume: search and ocm, whose
-          # state only one process may hold, start on the first pod only.
+          {{- if ne $role "server" }}
+          # Format pod URLs and listener addresses for the pod IP family.
           command:
             - /bin/sh
             - -ec
             - |
+              pod_host="$POD_IP"
+              case "$POD_IP" in
+                *:*)
+                  pod_host="[$POD_IP]"
+                  {{- $ports := include "opencloud.bindPorts" $ctx | fromYaml }}
+                  {{- $_ := set $ports "STORAGE_USERS_DEBUG" 9159 }}
+                  {{- $_ := set $ports "PROXY_HTTP" 9200 }}
+                  {{- $_ := set $ports "PROXY_DEBUG" (include "opencloud.debugPort" $ctx) }}
+                  {{- range $service, $port := $ports }}
+                  {{- if not (has (printf "%s_ADDR" $service) $names) }}
+                  export {{ $service }}_ADDR="[$POD_IP]:{{ $port }}"
+                  {{- end }}
+                  {{- end }}
+                  ;;
+              esac
+              export THUMBNAILS_DATA_ENDPOINT="${THUMBNAILS_DATA_ENDPOINT:-http://${pod_host}:9186/thumbnails/data}"
+              {{- if $shared }}
               if [ "${HOSTNAME##*-}" = "0" ] && [ -n "${OC_SINGLETON_SERVICES:-}" ]; then
                 export OC_RUN_SERVICES="${OC_RUN_SERVICES},${OC_SINGLETON_SERVICES}"
               fi
+              {{- end }}
               exec opencloud server
           {{- else }}
           args: ["server"]
@@ -153,6 +169,9 @@
           {{- with $envFrom }}
           envFrom:
             {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $ctx.Values.lifecycleHooks }}
+          lifecycle: {{- toYaml . | nindent 12 }}
           {{- end }}
           ports:
             {{- if eq $role "storage" }}

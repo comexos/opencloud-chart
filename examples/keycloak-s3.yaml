@@ -17,7 +17,7 @@ storage:
     endpoint: "https://s3.eu-central-1.amazonaws.com"
     region: "eu-central-1"
     bucket: "opencloud-files"
-    existingSecret: "opencloud-s3"  # keys: accessKey, secretKey
+    existingSecret: "opencloud-s3"  # keys: accessKeyId, secretKey
 
 smtp:
   enabled: true

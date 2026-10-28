@@ -365,13 +365,13 @@
             "existingSecret": {
               "type": "string"
             },
-            "accessKeySecretKey": {
+            "accessKeyIdSecretKey": {
               "type": "string"
             },
             "secretKeySecretKey": {
               "type": "string"
             },
-            "accessKey": {
+            "accessKeyId": {
               "type": "string"
             },
             "secretKey": {
@@ -1322,6 +1322,9 @@
     },
     "extraInitContainers": {
       "type": "array"
+    },
+    "lifecycleHooks": {
+      "type": "object"
     },
     "extraVolumes": {
       "type": "array"

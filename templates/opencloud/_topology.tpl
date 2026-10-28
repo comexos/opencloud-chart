@@ -154,13 +154,11 @@ WEB_HTTP: 9100
   value: eu.opencloud.api.gateway
 # A thumbnail is cached in the pod that renders it, and that pod's
 # thumbnails service returns this URL for the download, so it must name the
-# pod itself rather than localhost. POD_IP has to precede it in the list.
+# pod itself rather than localhost. The startup script formats IPv6 literals.
 - name: POD_IP
   valueFrom:
     fieldRef:
       fieldPath: status.podIP
-- name: THUMBNAILS_DATA_ENDPOINT
-  value: "http://$(POD_IP):9186/thumbnails/data"
 # Data transfers go to the storage pod, not to localhost.
 - name: STORAGE_USERS_DATA_SERVER_URL
   value: {{ printf "http://%s:9158/data" $storage | quote }}

@@ -1,5 +1,7 @@
 """Render checks: python3 tests/render.py (requires Helm and PyYAML)."""
 from pathlib import Path
+import os
+import json
 import subprocess
 import tempfile
 import unittest
@@ -178,13 +180,13 @@ class ChartChecks(unittest.TestCase):
         variables = env(render({'storage': {'driver': 'decomposeds3', 's3': s3}}))
         self.assertEqual(variables['STORAGE_SYSTEM_DRIVER']['value'], 'decomposed')
         self.assertEqual(variables['STORAGE_USERS_DECOMPOSEDS3_BUCKET']['value'], 'files')
-        self.assertEqual(variables['STORAGE_USERS_DECOMPOSEDS3_ACCESS_KEY']['valueFrom']['secretKeyRef'], {'name': 's3', 'key': 'accessKey'})
-        docs = render({'storage': {'driver': 'decomposeds3', 's3': {**s3, 'existingSecret': '', 'accessKey': 'id', 'secretKey': 'key'}}})
+        self.assertEqual(variables['STORAGE_USERS_DECOMPOSEDS3_ACCESS_KEY']['valueFrom']['secretKeyRef'], {'name': 's3', 'key': 'accessKeyId'})
+        docs = render({'storage': {'driver': 'decomposeds3', 's3': {**s3, 'existingSecret': '', 'accessKeyId': 'id', 'secretKey': 'key'}}})
         self.assertEqual(env(docs)['STORAGE_USERS_DECOMPOSEDS3_SECRET_KEY']['valueFrom']['secretKeyRef'], {'name': 'opencloud-env', 'key': 's3SecretKey'})
-        self.assertEqual(find(docs, 'Secret', 'opencloud-env')['stringData'], {'s3AccessKey': 'id', 's3SecretKey': 'key'})
+        self.assertEqual(find(docs, 'Secret', 'opencloud-env')['stringData'], {'s3AccessKeyId': 'id', 's3SecretKey': 'key'})
         for invalid in [
             {'storage': {'driver': 'decomposeds3'}},
-            {'storage': {'driver': 'decomposeds3', 's3': {**s3, 'existingSecret': '', 'accessKey': 'id'}}},
+            {'storage': {'driver': 'decomposeds3', 's3': {**s3, 'existingSecret': '', 'accessKeyId': 'id'}}},
             {'storage': {'driver': 'ocis'}},
         ]:
             with self.subTest(values=invalid):
@@ -502,11 +504,9 @@ class ChartChecks(unittest.TestCase):
             self.assertNotIn('OC_GATEWAY_GRPC_ADDR', variables)
             self.assertEqual(variables['STORAGE_USERS_GATEWAY_GRPC_ADDR']['value'], 'eu.opencloud.api.gateway')
             self.assertEqual(variables['STORAGE_USERS_DATA_SERVER_URL']['value'], 'http://opencloud-headless.cloud.svc.cluster.local:9158/data')
-            # Thumbnails are downloaded from the pod that rendered them; $(POD_IP) only expands if defined earlier.
-            names = list(variables)
+            # The startup script formats the pod address for thumbnail URLs.
             self.assertEqual(variables['POD_IP']['valueFrom'], {'fieldRef': {'fieldPath': 'status.podIP'}})
-            self.assertEqual(variables['THUMBNAILS_DATA_ENDPOINT']['value'], 'http://$(POD_IP):9186/thumbnails/data')
-            self.assertLess(names.index('POD_IP'), names.index('THUMBNAILS_DATA_ENDPOINT'))
+            self.assertNotIn('THUMBNAILS_DATA_ENDPOINT', variables)
             self.assertEqual(variables['OC_LOG_LEVEL']['value'], 'debug')
             self.assertEqual(variables['OC_JWT_SECRET']['valueFrom']['secretKeyRef']['name'], 'service')
         # Probes use each role's debug port: the user storage's, or the proxy's.
@@ -535,6 +535,27 @@ class ChartChecks(unittest.TestCase):
         # Without credentials NATS is reached anonymously.
         variables = {e['name'] for e in container(self.split({'nats': {'address': 'nats:4222'}}))['env']}
         self.assertFalse(any(name.endswith(('_AUTH_USERNAME', '_AUTH_PASSWORD')) for name in variables))
+
+    def test_split_startup_addresses_and_overrides(self):
+        for override in (False, True):
+            extra = {'extraEnvVars': [{'name': 'GATEWAY_GRPC_ADDR', 'value': 'custom:9142'},
+                                     {'name': 'THUMBNAILS_DATA_ENDPOINT', 'value': 'https://custom/data'}]} if override else {}
+            docs = self.split(extra)
+            containers = [container(docs), find(docs, 'Deployment', 'opencloud-frontend')['spec']['template']['spec']['containers'][0]]
+            for c in containers:
+                for ip, host in [('10.0.0.1', '10.0.0.1'), ('fd00::12', '[fd00::12]')]:
+                    with self.subTest(override=override, role=c['name'], ip=ip), tempfile.TemporaryDirectory() as directory:
+                        fake = Path(directory) / 'opencloud'
+                        fake.write_text('#!/usr/bin/env python3\nimport os, json\nprint(json.dumps(dict(os.environ)))\n')
+                        fake.chmod(0o755)
+                        env = {**os.environ, **{e['name']: e['value'] for e in c['env'] if 'value' in e},
+                               'POD_IP': ip, 'PATH': directory + os.pathsep + os.environ['PATH']}
+                        result = subprocess.run(c['command'], env=env, capture_output=True, text=True, check=True)
+                        actual = json.loads(result.stdout)
+                        self.assertEqual(actual['THUMBNAILS_DATA_ENDPOINT'], 'https://custom/data' if override else f'http://{host}:9186/thumbnails/data')
+                        self.assertEqual(actual['GATEWAY_GRPC_ADDR'], 'custom:9142' if override else (f'{host}:9142' if ':' in ip else '0.0.0.0:9142'))
+                        self.assertEqual(actual['PROXY_HTTP_ADDR'], f'{host}:9200' if ':' in ip else '0.0.0.0:9200')
+                        self.assertEqual(actual['STORAGE_USERS_DEBUG_ADDR'], f'{host}:9159' if ':' in ip else '0.0.0.0:9159')
 
     def test_split_cluster_domain(self):
         # The storage pod's data endpoints follow the cluster's DNS domain.
@@ -607,8 +628,7 @@ class ChartChecks(unittest.TestCase):
     def test_split_single_storage_pod_unchanged(self):
         docs = self.split()
         c = container(docs)
-        self.assertEqual(c['args'], ['server'])
-        self.assertNotIn('command', c)
+        self.assertEqual(c['command'][:2], ['/bin/sh', '-ec'])
         self.assertNotIn('OC_SINGLETON_SERVICES', {e['name'] for e in c['env']})
         self.assertFalse([d for d in docs if d['kind'] == 'PersistentVolumeClaim'])
 
@@ -706,6 +726,12 @@ class ChartChecks(unittest.TestCase):
             with self.subTest(values=invalid):
                 render(invalid, succeeds=False)
 
+
+    def test_lifecycle_hooks(self):
+        self.assertNotIn('lifecycle', workload(render())['spec']['template']['spec']['containers'][0])
+        hook = {'preStop': {'exec': {'command': ['sleep', '5']}}}
+        container = workload(render({'lifecycleHooks': hook}))['spec']['template']['spec']['containers'][0]
+        self.assertEqual(container['lifecycle'], hook)
 
 if __name__ == '__main__':
     unittest.main()
