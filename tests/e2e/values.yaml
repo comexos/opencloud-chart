@@ -37,10 +37,21 @@ radicale:
 passwordPolicy:
   bannedPasswords: ["password"]
 web:
+  # Installed by an init container; check.py fetches it through the proxy.
+  extensions:
+    - name: "unzip"
+      image:
+        registry: "docker.io"
+        repository: "opencloudeu/web-extensions"
+        tag: "unzip-2.2.1"
+        digest: "sha256:9a71251417a4e76dafa15fcddff9540cbdcdbf0813ac347049e900654a3df448"
   appsConfig:
     maps:
       config:
         folderViewEnabled: false
+    unzip:
+      config:
+        e2e: "settings from appsConfig"
 metrics:
   enabled: true
   token:

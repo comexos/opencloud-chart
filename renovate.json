@@ -45,7 +45,7 @@
         "/^\\.github/workflows/.+\\.ya?ml$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n\\s+HELM_VERSION: \"(?<currentValue>[^\"]+)\""
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n\\s+[A-Z_]+_VERSION: \"(?<currentValue>[^\"]+)\""
       ]
     },
     {
@@ -92,6 +92,16 @@
         "pip-compile"
       ],
       "groupName": "CI Python tools"
+    },
+    {
+      "description": "Web extension images: the tag starts with the app name. Only the version after it is compared, so an app never moves to another app's tag.",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "/(^|/)opencloudeu/web-extensions$/"
+      ],
+      "versioning": "regex:^(?<compatibility>[a-z0-9-]+?)-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
     }
   ],
   "pip-compile": {

@@ -106,9 +106,10 @@ import json, sys
 spec = json.load(sys.stdin)["spec"]
 pod = spec["template"]["spec"]
 assert [t["metadata"]["name"] for t in spec["volumeClaimTemplates"]] == ["data"], "only the data claim"
-assert "initContainers" not in pod, "no opencloud init"
+inits = [c["name"] for c in pod.get("initContainers", [])]
+assert inits == ["extension-unzip"], f"no opencloud init, only the web extension: {inits}"
 assert {"name": "config", "emptyDir": {}} in pod["volumes"]
-print("ok   StatefulSet: data claim only, no init container, emptyDir config")'
+print("ok   StatefulSet: data claim only, no opencloud init, emptyDir config")'
 kubectl -n oc get pods -o json | python3 -c '
 import json, sys
 pods = json.load(sys.stdin)["items"]
