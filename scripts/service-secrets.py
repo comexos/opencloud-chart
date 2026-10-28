@@ -36,7 +36,6 @@ LOCATIONS = {
     'serviceAccountId': [(s, 'service_account', 'service_account_id') for s in SERVICES_WITH_ACCOUNT],
     'serviceAccountSecret': [(s, 'service_account', 'service_account_secret') for s in SERVICES_WITH_ACCOUNT],
     'wopiSecret': [('collaboration', 'wopi', 'secret')],
-    'thumbnailsTransferToken': [('thumbnails', 'thumbnail', 'transfer_secret')],
     'storageUsersMountId': [('storage_users', 'mount_id'), ('gateway', 'storage_registry', 'storage_users_mount_id')],
 }
 IDS = {'systemUserId', 'graphApplicationId', 'serviceAccountId', 'storageUsersMountId'}

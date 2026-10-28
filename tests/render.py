@@ -440,7 +440,7 @@ class ChartChecks(unittest.TestCase):
             'OC_JWT_SECRET': 'jwtSecret', 'OC_MACHINE_AUTH_API_KEY': 'machineAuthApiKey', 'OC_SYSTEM_USER_API_KEY': 'systemUserApiKey',
             'OC_SYSTEM_USER_ID': 'systemUserId', 'OC_TRANSFER_SECRET': 'transferSecret', 'OC_URL_SIGNING_SECRET': 'urlSigningSecret',
             'GRAPH_APPLICATION_ID': 'graphApplicationId', 'OC_SERVICE_ACCOUNT_ID': 'serviceAccountId', 'OC_SERVICE_ACCOUNT_SECRET': 'serviceAccountSecret',
-            'COLLABORATION_WOPI_SECRET': 'wopiSecret', 'THUMBNAILS_TRANSFER_TOKEN': 'thumbnailsTransferToken',
+            'COLLABORATION_WOPI_SECRET': 'wopiSecret',
             'STORAGE_USERS_MOUNT_ID': 'storageUsersMountId', 'GATEWAY_STORAGE_USERS_MOUNT_ID': 'storageUsersMountId',
         }
         for name, key in expected.items():
@@ -486,10 +486,10 @@ class ChartChecks(unittest.TestCase):
         storage_env, storage_c, storage_pod = roles['storage']
         frontend_env, frontend_c, frontend_pod = roles['frontend']
         # The storage pod runs only the services with state on the data volume; the frontend everything else.
-        self.assertEqual(storage_env['OC_RUN_SERVICES']['value'], 'storage-users,storage-system,search,ocm')
+        self.assertEqual(storage_env['OC_RUN_SERVICES']['value'], 'storage-users,storage-system,search,ocm,auth-guest')
         self.assertNotIn('OC_EXCLUDE_RUN_SERVICES', storage_env)
         self.assertEqual(set(frontend_env['OC_EXCLUDE_RUN_SERVICES']['value'].split(',')),
-                         {'idp', 'idm', 'nats', 'storage-users', 'storage-system', 'search', 'ocm'})
+                         {'idp', 'idm', 'nats', 'storage-users', 'storage-system', 'search', 'ocm', 'auth-guest'})
         self.assertEqual(frontend_env['OC_ADD_RUN_SERVICES']['value'], 'notifications')
         self.assertNotIn('OC_RUN_SERVICES', frontend_env)
         for variables in (storage_env, frontend_env):
@@ -507,6 +507,7 @@ class ChartChecks(unittest.TestCase):
             # The startup script formats the pod address for thumbnail URLs.
             self.assertEqual(variables['POD_IP']['valueFrom'], {'fieldRef': {'fieldPath': 'status.podIP'}})
             self.assertNotIn('THUMBNAILS_DATA_ENDPOINT', variables)
+            self.assertNotIn('WEBDAV_THUMBNAILS_GENERATOR_URL', variables)
             self.assertEqual(variables['OC_LOG_LEVEL']['value'], 'debug')
             self.assertEqual(variables['OC_JWT_SECRET']['valueFrom']['secretKeyRef']['name'], 'service')
         # Probes use each role's debug port: the user storage's, or the proxy's.
@@ -539,7 +540,7 @@ class ChartChecks(unittest.TestCase):
     def test_split_startup_addresses_and_overrides(self):
         for override in (False, True):
             extra = {'extraEnvVars': [{'name': 'GATEWAY_GRPC_ADDR', 'value': 'custom:9142'},
-                                     {'name': 'THUMBNAILS_DATA_ENDPOINT', 'value': 'https://custom/data'}]} if override else {}
+                                     {'name': 'WEBDAV_THUMBNAILS_GENERATOR_URL', 'value': 'https://custom'}]} if override else {}
             docs = self.split(extra)
             containers = [container(docs), find(docs, 'Deployment', 'opencloud-frontend')['spec']['template']['spec']['containers'][0]]
             for c in containers:
@@ -552,7 +553,7 @@ class ChartChecks(unittest.TestCase):
                                'POD_IP': ip, 'PATH': directory + os.pathsep + os.environ['PATH']}
                         result = subprocess.run(c['command'], env=env, capture_output=True, text=True, check=True)
                         actual = json.loads(result.stdout)
-                        self.assertEqual(actual['THUMBNAILS_DATA_ENDPOINT'], 'https://custom/data' if override else f'http://{host}:9186/thumbnails/data')
+                        self.assertEqual(actual['WEBDAV_THUMBNAILS_GENERATOR_URL'], 'https://custom' if override else f'http://{host}:9186')
                         self.assertEqual(actual['GATEWAY_GRPC_ADDR'], 'custom:9142' if override else (f'{host}:9142' if ':' in ip else '0.0.0.0:9142'))
                         self.assertEqual(actual['PROXY_HTTP_ADDR'], f'{host}:9200' if ':' in ip else '0.0.0.0:9200')
                         self.assertEqual(actual['STORAGE_USERS_DEBUG_ADDR'], f'{host}:9159' if ':' in ip else '0.0.0.0:9159')
@@ -602,11 +603,11 @@ class ChartChecks(unittest.TestCase):
         self.assertEqual(claim['metadata']['annotations']['helm.sh/resource-policy'], 'keep')
         volumes = {v['name']: v for v in storage['spec']['template']['spec']['volumes']}
         self.assertEqual(volumes['data'], {'name': 'data', 'persistentVolumeClaim': {'claimName': 'opencloud-data'}})
-        # search and ocm run on the first pod only; the wrapper adds them there.
+        # search, ocm and auth-guest run on the first pod only; the wrapper adds them there.
         c = storage['spec']['template']['spec']['containers'][0]
         variables = {e['name']: e.get('value') for e in c['env']}
         self.assertEqual(variables['OC_RUN_SERVICES'], 'storage-users,storage-system')
-        self.assertEqual(variables['OC_SINGLETON_SERVICES'], 'search,ocm')
+        self.assertEqual(variables['OC_SINGLETON_SERVICES'], 'search,ocm,auth-guest')
         self.assertNotIn('args', c)
         self.assertEqual(c['command'][:2], ['/bin/sh', '-ec'])
         self.assertIn('${HOSTNAME##*-}', c['command'][2])
@@ -623,7 +624,7 @@ class ChartChecks(unittest.TestCase):
         self.assertEqual(volumes['data']['persistentVolumeClaim']['claimName'], 'nas')
         # Excluded singletons are not started at all.
         variables = {e['name']: e.get('value') for e in container(self.split({**self.SHARED, 'excludeServices': ['search']}))['env']}
-        self.assertEqual(variables['OC_SINGLETON_SERVICES'], 'ocm')
+        self.assertEqual(variables['OC_SINGLETON_SERVICES'], 'ocm,auth-guest')
 
     def test_split_single_storage_pod_unchanged(self):
         docs = self.split()
@@ -646,9 +647,9 @@ class ChartChecks(unittest.TestCase):
             workloads[replicas] = {k: v for k, v in spec.items() if k != 'replicas'}
         self.assertEqual(workloads[1], workloads[2])
         self.assertEqual(workloads[2], workloads[3])
-        # With one pod in shared mode, search and ocm still start there.
+        # With one pod in shared mode, the singletons still start there.
         variables = {e['name']: e.get('value') for e in container(self.split({**self.SHARED, 'storagePods': {'replicas': 1}}))['env']}
-        self.assertEqual(variables['OC_SINGLETON_SERVICES'], 'search,ocm')
+        self.assertEqual(variables['OC_SINGLETON_SERVICES'], 'search,ocm,auth-guest')
 
     def test_shared_storage_rejected_combinations(self):
         rwx = {'persistence': {'data': {'accessMode': 'ReadWriteMany'}}}
@@ -664,7 +665,7 @@ class ChartChecks(unittest.TestCase):
 
     def test_split_excluded_services(self):
         docs = self.split({'excludeServices': ['search']})
-        self.assertEqual(env(docs)['OC_RUN_SERVICES']['value'], 'storage-users,storage-system,ocm')
+        self.assertEqual(env(docs)['OC_RUN_SERVICES']['value'], 'storage-users,storage-system,ocm,auth-guest')
         frontend = find(docs, 'Deployment', 'opencloud-frontend')['spec']['template']['spec']['containers'][0]
         self.assertIn('search', {e['name']: e['value'] for e in frontend['env'] if 'value' in e}['OC_EXCLUDE_RUN_SERVICES'].split(','))
 
@@ -732,6 +733,22 @@ class ChartChecks(unittest.TestCase):
         hook = {'preStop': {'exec': {'command': ['sleep', '5']}}}
         container = workload(render({'lifecycleHooks': hook}))['spec']['template']['spec']['containers'][0]
         self.assertEqual(container['lifecycle'], hook)
+
+    def test_opencloud_9_config_update_and_guest_links(self):
+        # The init container updates an existing config for a new version, on a copy in /tmp.
+        init = workload(render())['spec']['template']['spec']['initContainers'][0]
+        script = init['command'][2]
+        self.assertIn('env -u IDM_ADMIN_PASSWORD -u ADMIN_PASSWORD \\\n    opencloud init --diff --quiet --config-path "$work"', script)
+        # The admin password stays set for the first init, which --diff would reject.
+        init = workload(render({'admin': {'password': 'secret'}}))['spec']['template']['spec']['initContainers'][0]
+        self.assertIn('IDM_ADMIN_PASSWORD', [e['name'] for e in init['env']])
+        self.assertIn('patch /etc/opencloud/opencloud.yaml', script)
+        self.assertIn('opencloud init --quiet', script)
+        # Guest links are off by default and need SMTP.
+        self.assertEqual(env(render())['OC_ENABLE_GUEST_LINKS']['value'], 'false')
+        self.assertIn('requires smtp.enabled', render({'sharing': {'guestLinks': True}}, succeeds=False))
+        smtp = {'enabled': True, 'host': 'smtp.example.org', 'sender': 'cloud@example.org'}
+        self.assertEqual(env(render({'sharing': {'guestLinks': True}, 'smtp': smtp}))['OC_ENABLE_GUEST_LINKS']['value'], 'true')
 
 if __name__ == '__main__':
     unittest.main()

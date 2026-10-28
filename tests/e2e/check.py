@@ -33,17 +33,23 @@ def request(method, url, token=None, data=None, headers=None):
         return error.code, error.read()
 
 
-def download(url, token, timeout=60):
-    """GET a file, waiting while OpenCloud answers 425 Too Early: an upload is
-    released only after its asynchronous postprocessing. Returns the status, the
+def while_processing(method, url, token, timeout=60, **kwargs):
+    """Repeat a request while OpenCloud answers 425 Too Early: a new upload is
+    held back by its asynchronous postprocessing. OpenCloud refuses downloads
+    until then, and since 9.0 also moves and deletes. Returns the status, the
     body and the seconds waited; a file never released ends with 425."""
     deadline = time.monotonic() + timeout
     start = time.monotonic()
     while True:
-        status, raw = request('GET', url, token)
+        status, raw = request(method, url, token, **kwargs)
         if status != 425 or time.monotonic() >= deadline:
             return status, raw, time.monotonic() - start
         time.sleep(1)
+
+
+def download(url, token, timeout=60):
+    """GET a file once its postprocessing is done, see while_processing."""
+    return while_processing('GET', url, token, timeout)
 
 
 def check(name, condition, detail=''):

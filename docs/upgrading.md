@@ -2,6 +2,18 @@
 
 Before an upgrade, back up config and data volumes, external service secrets and any S3 data. Test restoration. Review upstream application release notes as well as chart changes.
 
+## Chart 0.3.0: OpenCloud 9.0
+
+Read the upstream [upgrade notes](https://docs.opencloud.eu/docs/next/admin/maintenance/upgrade/upgrade-9.x.x). For the chart:
+
+- **Generated config:** the init container updates `opencloud.yaml` on start. It adds the service account of the new `auth-guest` service and removes the old thumbnail settings. Existing values stay.
+- **External service secrets:** `thumbnailsTransferToken` is no longer used. You can remove it from the Secret.
+- **Thumbnails:** the cache moved to `thumbnails/cache` on the data volume. You can delete the old `thumbnails/files` folder.
+- **Default quota:** if you set `GRAPH_SPACES_DEFAULT_QUOTA` through `extraEnv`, rename it to `OC_SPACES_DEFAULT_QUOTA`.
+- **Guest access:** new and off by default. Enable it with `sharing.guestLinks`; it needs `smtp.enabled`.
+- **Split topology:** `auth-guest` keeps its tokens on the data volume, so it runs in the storage pod, on the first pod only.
+- **New uploads:** OpenCloud 9 also refuses moving or deleting a file while it is still processed after upload, with HTTP 425. Scripts that rename right after an upload must retry, as they already do for downloads.
+
 ## Chart 0.2.1: S3 value names
 
 These names changed; no compatibility aliases are provided before chart 1.0:

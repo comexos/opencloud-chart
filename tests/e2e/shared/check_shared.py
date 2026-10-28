@@ -74,7 +74,8 @@ def write(marker):
     check.check(f"{FILES} parallel uploads with {WORKERS} workers", not bad, bad[:10])
 
     def rename(i):
-        status, _ = check.request(
+        # Waits while the upload is still in postprocessing (425), see check.while_processing.
+        status, _, _ = check.while_processing(
             "MOVE", f"{check.OC}/remote.php/webdav/{folder}/file-{i}.txt", token,
             headers={"Destination": f"{check.OC}/remote.php/webdav/{folder}/renamed-{i}.txt", "Overwrite": "F"})
         return i, status

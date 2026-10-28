@@ -9,16 +9,17 @@
 {{- end -}}
 
 {{/* Services that keep files on the data volume: user and system storage
-     (including in-flight uploads), the search index and OCM invitations. */}}
+     (including in-flight uploads), the search index, OCM invitations and the
+     guest-link tokens of auth-guest. */}}
 {{- define "opencloud.storageServices" -}}
-{{- list "storage-users" "storage-system" "search" "ocm" | toYaml -}}
+{{- list "storage-users" "storage-system" "search" "ocm" "auth-guest" | toYaml -}}
 {{- end -}}
 
 {{/* Storage services whose state only one process may hold: the search
-     index and the OCM invitation store. With several storage pods they run on
-     the first pod only. */}}
+     index, the OCM invitation store and the guest-link tokens. With several
+     storage pods they run on the first pod only. */}}
 {{- define "opencloud.storageSingletons" -}}
-{{- list "search" "ocm" | toYaml -}}
+{{- list "search" "ocm" "auth-guest" | toYaml -}}
 {{- end -}}
 
 {{/* Number of storage pods: storagePods.replicas in topology split, else 1. */}}
@@ -70,6 +71,8 @@ AUTH_APP_GRPC: 9246
 AUTH_APP_HTTP: 9247
 AUTH_BASIC_GRPC: 9146
 AUTH_BEARER_GRPC: 9148
+AUTH_GUEST_GRPC: 9268
+AUTH_GUEST_HTTP: 9266
 AUTH_MACHINE_GRPC: 9166
 AUTH_SERVICE_GRPC: 9199
 COLLABORATION_GRPC: 9301
@@ -95,7 +98,6 @@ STORAGE_SYSTEM_GRPC: 9215
 STORAGE_SYSTEM_HTTP: 9216
 STORAGE_USERS_GRPC: 9157
 STORAGE_USERS_HTTP: 9158
-THUMBNAILS_GRPC: 9185
 THUMBNAILS_HTTP: 9186
 USERLOG_HTTP: 9210
 USERS_GRPC: 9144
@@ -152,9 +154,8 @@ WEB_HTTP: 9100
 # only the user storage's client setting points at the registry name.
 - name: STORAGE_USERS_GATEWAY_GRPC_ADDR
   value: eu.opencloud.api.gateway
-# A thumbnail is cached in the pod that renders it, and that pod's
-# thumbnails service returns this URL for the download, so it must name the
-# pod itself rather than localhost. The startup script formats IPv6 literals.
+# The startup script binds the services to the pod address on IPv6 and points
+# WebDAV at the thumbnail generator in the same pod.
 - name: POD_IP
   valueFrom:
     fieldRef:

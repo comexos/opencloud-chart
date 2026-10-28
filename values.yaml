@@ -30,11 +30,11 @@ image:
   repository: "opencloudeu/opencloud-rolling"
   # -- Image tag, kept in sync with the digest by Renovate.
   # @default -- pinned, see values.yaml
-  tag: "8.1.0"
+  tag: "9.0.0"
   # -- Multi-arch index digest of the tag. Takes precedence over the tag;
   # clear it to float on the tag instead.
   # @default -- pinned, see values.yaml
-  digest: "sha256:8fc64ca861739cc62095cd558814f2eba6a90acf5998d884e439b33a47875da8"
+  digest: "sha256:bd57f039d0dd3df510fb25f178beefdf0b1f049097285feead607824460e6506"
   pullPolicy: "IfNotPresent"
   pullSecrets: []
 
@@ -86,6 +86,9 @@ sharing:
   publicShareMustHavePassword: true
   # -- OC_SHARING_PUBLIC_WRITEABLE_SHARE_MUST_HAVE_PASSWORD.
   publicWriteableShareMustHavePassword: false
+  # -- Share with people who have no account, by email (OC_ENABLE_GUEST_LINKS).
+  # Guests get their link and PIN by email, so this requires smtp.enabled.
+  guestLinks: false
 
 # Password policy for public link passwords.
 passwordPolicy:
@@ -311,8 +314,8 @@ metrics:
 serviceSecrets:
   # -- Existing Secret with the keys jwtSecret, machineAuthApiKey,
   # systemUserApiKey, systemUserId, transferSecret, urlSigningSecret,
-  # graphApplicationId, serviceAccountId, serviceAccountSecret, wopiSecret,
-  # thumbnailsTransferToken and storageUsersMountId.
+  # graphApplicationId, serviceAccountId, serviceAccountSecret, wopiSecret and
+  # storageUsersMountId.
   existingSecret: ""
 
 # -- DNS domain of the Kubernetes cluster, for in-cluster service addresses
@@ -362,18 +365,18 @@ frontend:
   topologySpreadConstraints: []
 
 # The storage pods of topology split: the StatefulSet that runs storage-users,
-# storage-system, search and ocm on the data volume.
+# storage-system, search, ocm and auth-guest on the data volume.
 storagePods:
   # -- Number of storage pods. EXPERIMENTAL above 1, which requires
   # persistence.data.shared: the pods share one ReadWriteMany data volume on a
   # file system with flock and extended attributes, e.g. NFS 4.2 mounted with
-  # noac, or CephFS. search and ocm keep state that only one process may hold
-  # and run on the first pod only. See docs/scaling.md.
+  # noac, or CephFS. search, ocm and auth-guest keep state that only one process
+  # may hold and run on the first pod only. See docs/scaling.md.
   replicas: 1
 
 # External NATS cluster for topology split, which holds the service registry,
 # events, caches and stores shared by the pods. It needs JetStream with file
-# and memory storage. OpenCloud 8.1 connects to the registry without TLS, and
+# and memory storage. OpenCloud 9.0 connects to the registry without TLS, and
 # its health checks connect without credentials: with authentication, also
 # allow such connections (e.g. a no_auth_user without permissions). See
 # docs/scaling.md#nats for NATS chart values.
@@ -450,11 +453,11 @@ yjs:
     repository: "opencloudeu/yjs"
     # -- Image tag, kept in sync with the digest by Renovate.
     # @default -- pinned, see values.yaml
-    tag: "1.1.0"
+    tag: "1.1.1"
     # -- Multi-arch index digest of the tag. Takes precedence over the tag;
     # clear it to float on the tag instead.
     # @default -- pinned, see values.yaml
-    digest: "sha256:99c6ce4688b06544c4e17cf149ceaefb90e2043d4e83d004c4f13c637a733dc4"
+    digest: "sha256:370ea8387e7896470b0c52d38769359ad5772d79a403d1bb5eb6d047b0789b35"
     pullPolicy: "IfNotPresent"
     pullSecrets: []
   # -- Milliseconds the server gets to flush documents on shutdown; keep it below terminationGracePeriodSeconds.
@@ -495,11 +498,11 @@ radicale:
     repository: "opencloudeu/radicale"
     # -- Image tag, kept in sync with the digest by Renovate.
     # @default -- pinned, see values.yaml
-    tag: "v3.8.3"
+    tag: "v3.9.0"
     # -- Multi-arch index digest of the tag. Takes precedence over the tag;
     # clear it to float on the tag instead.
     # @default -- pinned, see values.yaml
-    digest: "sha256:0c3fb9019410423639776285f830fd71e565935e7bdb3dc3b3252e4d99c2a29b"
+    digest: "sha256:35e74785140b24ab7009232bf426ef4e3964e7016d21eebf1a822fb7b212549d"
     pullPolicy: "IfNotPresent"
     pullSecrets: []
   # -- Replaces the generated Radicale configuration file entirely when set.
